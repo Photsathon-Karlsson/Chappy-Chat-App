@@ -1,10 +1,10 @@
 // Router for listing & deleting users
-// handle GET (list all users) &d DELETE (delete self/admin only)
+// handle GET (list all users) and DELETE (delete self/admin only)
 
 import express, { Request, Response } from "express";
 import { requireAuth } from "../middleware/requireAuth.js";
 import type { JwtPayload } from "../middleware/requireAuth.js";
-import { listAllUsers, deleteUserById } from "../data/userExtra.js";
+import { listAllUsers, deleteUserById } from "../data/dynamoUser.js";
 
 export const usersRouter = express.Router();
 
