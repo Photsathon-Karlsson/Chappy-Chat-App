@@ -1,49 +1,62 @@
-// display & remove users
+// Router for listing & deleting users
+// handle GET (list all users) &d DELETE (delete self/admin only)
 
-import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import {
-  DynamoDBDocumentClient,
-  ScanCommand,
-  DeleteCommand,
-} from "@aws-sdk/lib-dynamodb";
+import express, { Request, Response } from "express";
+import { requireAuth } from "../middleware/requireAuth.js";
+import type { JwtPayload } from "../middleware/requireAuth.js";
+import { listAllUsers, deleteUserById } from "../data/userExtra.js";
 
-// Set the DynamoDB table name for users
-const USERS_TABLE = process.env.USERS_TABLE || "ChappyUsers";
+export const usersRouter = express.Router();
 
-// Create a new DynamoDB client
-const client = new DynamoDBClient({});
-// Create a DocumentClient that can talk to the database easily
-const docClient = DynamoDBDocumentClient.from(client);
+// GET /api/users - list all users (require auth)
+usersRouter.get("/", requireAuth, async (_req: Request, res: Response) => {
+  try {
+    const users = await listAllUsers();
+    res.json({ success: true, users });
+  } catch (error) {
+    console.error("[users] list error", error);
+    res.status(500).json({
+      success: false,
+      message: "could not load users",
+    });
+  }
+});
 
-// Basic user item shape
-export type UserItem = {
-  userId: string;           // Unique ID for each user
-  username: string;         // The user’s name
-  passwordHash?: string;    // Encrypted password
-  accessLevel?: string;     // Admin or user role
-};
+// DELETE /api/users/:userId - delete self or any user if admin
+usersRouter.delete(
+  "/:userId",
+  requireAuth,
+  async (req: Request, res: Response) => {
+    try {
+      const authUser = (req as Request & { user?: JwtPayload }).user;
 
-// Function to list all users from DynamoDB
-export async function listAllUsers() {
-  // Create a scan command to read every item in the table
-  const command = new ScanCommand({
-    TableName: USERS_TABLE,
-  });
+      if (!authUser) {
+        return res.status(401).json({
+          success: false,
+          message: "not logged in",
+        });
+      }
 
-  // Send the command to DynamoDB & wait for the result
-  const result = await docClient.send(command);
+      const { userId } = req.params;
 
-  // Return all user items found, or an empty array if none
-  return (result.Items || []) as UserItem[];
-}
+      const isSelf = authUser.userId === userId;
+      const isAdmin = authUser.accessLevel === "admin";
 
-// Delete one user by userId
-export async function deleteUserById(userId: string) {
-  // Create a delete command to remove the user from the table
-  const command = new DeleteCommand({
-    TableName: USERS_TABLE,
-    Key: { userId }, // Identify which user to delete
-  });
+      if (!isSelf && !isAdmin) {
+        return res.status(403).json({
+          success: false,
+          message: "you can only delete yourself unless you are admin",
+        });
+      }
 
-  await docClient.send(command);
-}
+      await deleteUserById(userId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("[users] delete error", error);
+      res.status(500).json({
+        success: false,
+        message: "could not delete user",
+      });
+    }
+  }
+);

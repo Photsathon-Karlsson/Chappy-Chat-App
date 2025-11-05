@@ -15,8 +15,10 @@ import channelsRouter from "./routes/channels.js"; // channels routes (public + 
 import { requireAuth } from "./middleware/requireAuth.js"; // JWT middleware (to protect routes)
 // login route
 import loginRouter from "./routes/login.js";
-// New: logout route (frontend calls this and then clears token)
+// logout route (frontend calls this and then clears token)
 import logoutRouter from "./routes/logout.js";
+// users routes (list users + delete user)
+import { usersRouter } from "./routes/users.js";
 // dms route
 import dmsRouter from "./routes/dms.js"; // DM threads routes (require auth)
 // messages route
@@ -41,7 +43,7 @@ app.use(
 
 // * Fix Insomnia ("426 Upgrade Required" problem)
 // Force the server to stay on HTTP/1.1, no HTTP/2 upgrade
-app.disable("x-powered-by"); 
+app.disable("x-powered-by");
 app.use((_req: Request, res: Response, next: NextFunction) => {
   res.setHeader("Connection", "close"); // avoid HTTP/2 upgrade
   next();
@@ -71,25 +73,30 @@ app.get("/", (_req: Request, res: Response) => {
 app.use("/api/register", registerRouter);
 
 // Channels 
-    // - GET /api/channels      -> public channels list
-    // - GET /api/channels/all  -> all channels 
+//     - GET /api/channels      -> public channels list
+//     - GET /api/channels/all  -> all channels 
 app.use("/api/channels", channelsRouter);
 
 // Login 
 app.use("/api/login", loginRouter);
 
 // Logout (frontend clears token after this)
-    // - POST /api/logout -> { success: true, message: "logged out" }
+//     - POST /api/logout -> { success: true, message: "logged out" }
 app.use("/api/logout", logoutRouter);
 
+// Users 
+//     - GET /api/users            -> list all users (require auth)
+//     - DELETE /api/users/:userId -> delete user (self or admin)
+app.use("/api/users", usersRouter);
+
 // DMs 
-    // - GET /api/dms       -> user’s DMs (require auth)
-    // - GET /api/dms/all   -> all DMs (admin or auth)
+//     - GET /api/dms       -> user’s DMs (require auth)
+//     - GET /api/dms/all   -> all DMs (admin or auth)
 app.use("/api/dms", dmsRouter);
 
 // Messages routes 
-    // - GET /api/messages  -> list messages for channel or DM
-    // - POST /api/messages -> send new message (require auth)
+//     - GET /api/messages  -> list messages for channel or DM
+//     - POST /api/messages -> send new message (require auth)
 app.use("/api/messages", messagesRouter);
 
 // Protected route -> user info from token
