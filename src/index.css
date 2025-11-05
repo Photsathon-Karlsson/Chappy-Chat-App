@@ -1,0 +1,352 @@
+/* Fonts */
+@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;700&display=swap");
+
+/* Colors & fonts theme */
+:root {
+  --color-primary: #BFECFF;      /* main background color */
+  --color-secondary1: #CDC1FF;   /* sidebar color */
+  --color-secondary2: #FFF6E3;   /* message area color */
+  --color-accent: #FFCCEA;       /* button or highlight color */
+  --color-text: #000000;         /* text color */
+
+  --font-heading: "Poppins", sans-serif;
+  --font-body: "Poppins", sans-serif;
+}
+
+/* basic styles for all elements */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* main page background & text */
+html, body, #root {
+  height: 100%;
+  font-family: var(--font-body);
+  background-color: var(--color-primary);
+  color: var(--color-text);
+}
+
+/* Main layout container */
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* Header */
+.app-header {
+  background-color: var(--color-primary);
+  text-align: center;
+  padding: 1rem;
+  border-bottom: 2px solid var(--color-secondary1);
+}
+
+.app-header h1 {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 2rem;
+}
+
+/* Layout for page body */
+.app-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+/* Sidebar menu */
+.sidebar {
+  background-color: var(--color-secondary1);
+  width: 220px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.sidebar-title {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 1.1rem;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+/* Sidebar list & buttons */
+.sidebar-list {
+  list-style: none;
+  margin-bottom: 1rem;
+}
+
+.sidebar-item {
+  background: none;
+  border: none;
+  width: 100%;
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+  border-radius: 8px;
+  font-family: var(--font-body);
+  cursor: pointer;
+}
+
+.sidebar-item:hover {
+  background-color: var(--color-accent);
+}
+
+.sidebar-item.active {
+  background-color: var(--color-accent);
+  font-weight: 500;
+}
+
+/* Small badge next to items */
+.badge {
+  float: right;
+  background-color: var(--color-accent);
+  border-radius: 10px;
+  padding: 0 6px;
+  font-size: 0.75rem;
+}
+
+/* Main content area */
+.content {
+  flex: 1;
+  background-color: var(--color-secondary2);
+  display: flex;
+  flex-direction: column;
+  padding: 1rem;
+  overflow-y: auto;
+}
+
+/* Login or logout button area */
+.auth {
+  text-align: center;
+  margin-bottom: 1rem;
+}
+
+/* General button styles */
+.btn {
+  font-family: var(--font-body);
+  font-weight: 500;
+  padding: 0.5rem 1.2rem;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.2s, opacity 0.2s;
+}
+
+.btn.primary {
+  background-color: var(--color-accent);
+}
+
+.btn:hover {
+  opacity: 0.9;
+}
+
+/* Message list area */
+.message-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  flex: 1;
+  overflow-y: auto;
+}
+
+/* Each message box */
+.message-item {
+  background-color: #ffffff;
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+/* Message title & time */
+.message-header {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
+/* Message text */
+.text {
+  margin-top: 0.3rem;
+  font-size: 0.9rem;
+}
+
+/* Message input area */
+.message-input {
+  display: flex;
+  gap: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 2px solid var(--color-secondary1);
+}
+
+.message-input .input {
+  flex: 1;
+  padding: 0.5rem;
+  border: 1px solid var(--color-secondary1);
+  border-radius: 8px;
+  font-family: var(--font-body);
+}
+
+/* Scrollbar style */
+.sidebar, .content {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-secondary1) var(--color-primary);
+}
+
+.sidebar::-webkit-scrollbar,
+.content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sidebar::-webkit-scrollbar-thumb,
+.content::-webkit-scrollbar-thumb {
+  background: var(--color-secondary1);
+  border-radius: 8px;
+}
+
+/* Login page */
+.login-page {
+  display: flex;
+  justify-content: center;        /* center horizontally */
+  padding: 1.25rem 0;
+}
+
+.login-card {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 1.25rem;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08);
+  width: 460px;                   /* card width */
+  max-width: calc(100% - 2rem);
+  margin: 0 auto;                 /* ensure it stays centered */
+}
+
+/* input boxes */
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.login-form .input {
+  width: 100%;
+  max-width: 360px;               /* limit input width */
+  border: 1px solid var(--color-secondary1);
+  border-radius: 8px;
+  padding: 0.6rem 0.75rem;
+}
+
+.login-form .btn {
+  min-width: 110px;
+}
+
+/* Responsive Design */
+
+/* For smaller screens like tablets */
+@media (max-width: 768px) {
+  .app-header h1 {
+    font-size: 1.6rem; /* smaller title */
+  }
+
+  .app-body {
+    flex-direction: column; /* put sidebar on top & chat below */
+  }
+
+  .sidebar {
+    width: 100%; /* full width */
+    border-bottom: 2px solid var(--color-secondary1);
+    padding: 0.75rem;
+  }
+
+  .sidebar-title {
+    font-size: 1rem;
+    margin-top: 0.5rem;
+  }
+
+  .sidebar-item {
+    padding: 0.5rem 0.6rem;
+  }
+
+  .content {
+    padding: 0.75rem;
+  }
+
+  .auth {
+    margin-bottom: 0.75rem;
+  }
+
+  .btn {
+    width: 100%; /* easier to tap on mobile */
+    padding: 0.65rem 1rem;
+  }
+
+  .message-list {
+    gap: 0.4rem;
+  }
+
+  .message-item {
+    padding: 0.6rem 0.7rem;
+  }
+
+  .message-header {
+    font-size: 0.85rem;
+  }
+
+  .text {
+    font-size: 0.95rem;
+    line-height: 1.35; /* better reading space */
+  }
+
+  .message-input {
+    position: sticky; /* keep input box always visible */
+    bottom: 0;
+    background: var(--color-secondary2);
+    padding-bottom: 0.75rem;
+    border-top: 2px solid var(--color-secondary1);
+  }
+
+  .message-input .input {
+    font-size: 1rem;
+    padding: 0.6rem;
+  }
+
+  /* login card use screen width nicely */
+  .login-card {
+    width: 92%;
+  }
+}
+
+/* For very small screens like phones */
+@media (max-width: 480px) {
+  .app-header h1 {
+    font-size: 1.4rem; /* smaller header title */
+  }
+
+  .sidebar {
+    padding: 0.5rem;
+  }
+
+  .sidebar-item {
+    font-size: 0.95rem;
+    border-radius: 6px;
+  }
+
+  .badge {
+    font-size: 0.7rem;
+    padding: 0 5px;
+  }
+
+  .login-card {
+    width: 94%;
+    padding: 0.85rem;
+  }
+
+  .login-form .input {
+    max-width: 100%;
+  }
+}
