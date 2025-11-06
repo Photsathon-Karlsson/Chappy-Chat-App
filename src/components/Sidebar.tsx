@@ -1,31 +1,29 @@
-// Sidebar - shows Channels & DMs & tells the parent which one is selected
+// Sidebar - shows Channels & DMs and highlights selected item
 
 import { useMemo } from "react";
 
-// Type for what kind of item (chat channel or direct message)
 type Scope = "channel" | "dm";
 
-// Each item in the sidebar (a channel or a DM)
 export type SidebarItem = {
-  id: string;       // unique key ID (e.g. "CHANNEL#general" or "USER#alice")
-  name: string;     // display name (e.g. "#general" or "@alice")
-  unread?: number;  // optional unread message count
+  id: string;
+  name: string;
+  unread?: number;
 };
 
-// Main Sidebar component
 export default function Sidebar(props: {
-  channels: SidebarItem[];                      // list of channels
-  dms: SidebarItem[];                           // list of direct messages
-  onSelect: (scope: Scope, id: string) => void; // when user clicks an item 
-  active?: { scope: Scope; id: string };        // the currently selected item
+  channels: SidebarItem[];
+  dms: SidebarItem[];
+  onSelect: (scope: Scope, id: string) => void;
+  active?: { scope: Scope; id: string };
 }) {
   const { channels, dms, onSelect, active } = props;
-
-  // Create a simple string key for the active item, like "channel:CHANNEL#general"
-  const activeKey = useMemo(() => (active ? `${active.scope}:${active.id}` : ""), [active]);
+  const activeKey = useMemo(
+    () => (active ? `${active.scope}:${active.id}` : ""),
+    [active]
+  );
 
   return (
-    <aside className="sidebar" aria-label="Sidebar with channels and direct messages">
+    <aside className="sidebar bg-purple-100 p-2 w-48">
       <Section
         title="Channels"
         items={channels}
@@ -44,7 +42,6 @@ export default function Sidebar(props: {
   );
 }
 
-// Part of the sidebar that shows one group (like Channels or DMs)
 function Section({
   title,
   items,
@@ -59,9 +56,9 @@ function Section({
   activeKey: string;
 }) {
   return (
-    <div className="sidebar-section">
-      <h2 className="sidebar-title">{title}</h2>
-      <ul className="sidebar-list" role="list">
+    <div className="sidebar-section mb-3">
+      <h2 className="font-bold mb-1">{title}</h2>
+      <ul className="space-y-1">
         {items.map((it) => {
           const key = `${scope}:${it.id}`;
           const isActive = key === activeKey;
@@ -69,25 +66,17 @@ function Section({
             <li key={key}>
               <button
                 type="button"
-                className={`sidebar-item ${isActive ? "active" : ""}`}
+                className={`w-full text-left px-2 py-1 rounded ${
+                  isActive ? "bg-pink-200" : "hover:bg-purple-200"
+                }`}
                 onClick={() => onSelect(scope, it.id)}
-                aria-current={isActive ? "true" : undefined}
               >
-                <span className="sidebar-item__name">{it.name}</span>
-                {typeof it.unread === "number" && it.unread > 0 && (
-                  <span className="badge" aria-label={`${it.unread} unread`}>
-                    {it.unread}
-                  </span>
-                )}
+                {it.name}
               </button>
             </li>
           );
         })}
-        {items.length === 0 && (
-          <li className="muted" aria-live="polite">
-            (empty)
-          </li>
-        )}
+        {items.length === 0 && <li className="text-gray-400">(empty)</li>}
       </ul>
     </div>
   );
