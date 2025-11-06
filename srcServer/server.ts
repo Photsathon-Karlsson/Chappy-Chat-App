@@ -1,5 +1,5 @@
 // Start the Express server for Chappy backend.
-// Sets up middlewares, CORS, logger, & health route.
+// Sets up middlewares, CORS, logger, routes and health check.
 
 import "dotenv/config";
 import express, {
@@ -9,25 +9,23 @@ import express, {
   type NextFunction,
 } from "express";
 import cors from "cors";
-import http from "http"; // use Node's HTTP module to force HTTP/1.1 (as have problem with insomnia)
+import http from "http"; // use Node HTTP module to force HTTP/1.1 (insomnia problem)
+
 import registerRouter from "./routes/register.js"; // register route (for new user signup)
 import channelsRouter from "./routes/channels.js"; // channels routes (public + locked lists)
 import { requireAuth } from "./middleware/requireAuth.js"; // JWT middleware (to protect routes)
-// login route
-import loginRouter from "./routes/login.js";
-// logout route (frontend calls this and then clears token)
-import logoutRouter from "./routes/logout.js";
-// users routes (list users + delete user)
-import { usersRouter } from "./routes/users.js";
-// dms route
+import loginRouter from "./routes/login.js"; // login route
+import logoutRouter from "./routes/logout.js"; // logout route (frontend calls this and then clears token)
+import { usersRouter } from "./routes/users.js"; // users routes (list users + delete user)
 import dmsRouter from "./routes/dms.js"; // DM threads routes (require auth)
-// messages route
 import messagesRouter from "./routes/messages.js"; // chat messages routes (GET + POST)
+import type { JwtPayload } from "./middleware/requireAuth.js";
+import { listAllUsers } from "./data/dynamoUser.js";
 
 const app: Express = express();
 
 // Read env variables
-const PORT: number = Number(process.env.PORT) || 1337;
+const PORT: number = Number(process.env.PORT) || 1338;
 const CORS_ORIGIN = process.env.CORS_ORIGIN || "http://localhost:5173";
 
 // Allow Express to read JSON from the request body
@@ -37,11 +35,11 @@ app.use(express.json());
 app.use(
   cors({
     origin: CORS_ORIGIN, // only allow requests from this URL
-    credentials: true, // allow cookies / auth headers
+    credentials: true, // allow cookies and auth headers
   })
 );
 
-// * Fix Insomnia ("426 Upgrade Required" problem)
+// Fix Insomnia ("426 Upgrade Required" problem)
 // Force the server to stay on HTTP/1.1, no HTTP/2 upgrade
 app.disable("x-powered-by");
 app.use((_req: Request, res: Response, next: NextFunction) => {
@@ -49,7 +47,7 @@ app.use((_req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-// Request logger (log each request (method + path))
+// Request logger (log each request method and path)
 app.use((req: Request, _res: Response, next: NextFunction) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
   next();
@@ -72,52 +70,69 @@ app.get("/", (_req: Request, res: Response) => {
 // Register (user signup)
 app.use("/api/register", registerRouter);
 
-// Channels 
-//     - GET /api/channels      -> public channels list
-//     - GET /api/channels/all  -> all channels 
+// Channels
 app.use("/api/channels", channelsRouter);
 
-// Login 
+// Login
 app.use("/api/login", loginRouter);
 
 // Logout (frontend clears token after this)
-//     - POST /api/logout -> { success: true, message: "logged out" }
 app.use("/api/logout", logoutRouter);
 
-// Users 
-//     - GET /api/users            -> list all users (require auth)
-//     - DELETE /api/users/:userId -> delete user (self or admin)
+// Users
 app.use("/api/users", usersRouter);
 
-// DMs 
-//     - GET /api/dms       -> user’s DMs (require auth)
-//     - GET /api/dms/all   -> all DMs (admin or auth)
+// DMs
 app.use("/api/dms", dmsRouter);
 
-// Messages routes 
-//     - GET /api/messages  -> list messages for channel or DM
-//     - POST /api/messages -> send new message (require auth)
+// Messages
 app.use("/api/messages", messagesRouter);
 
-// Protected route -> user info from token
-app.get("/api/me", requireAuth, (req: Request, res: Response) => {
-  // Middleware (requireAuth) puts user info in res.locals.user
-  const u = res.locals.user as {
-    userId: string;
-    username?: string;
-    accessLevel?: string;
-  };
+// Protected route -> user info from token (+ userId from DynamoDB)
+app.get("/api/me", requireAuth, async (req: Request, res: Response) => {
+  const authUser = res.locals.user as JwtPayload | undefined;
 
-  // Return user info from the token
+  if (!authUser) {
+    return res.status(401).json({
+      success: false,
+      message: "not logged in",
+    });
+  }
+
+  let userId: string | null = authUser.userId ?? null;
+
+  // If token has no userId, try to find it in DynamoDB by username
+  if (!userId && authUser.username) {
+    try {
+      const allUsers = await listAllUsers();
+      const meRow = allUsers.find(
+        (u) =>
+          u.username.toLowerCase() === authUser.username!.toLowerCase()
+      );
+
+      if (meRow) {
+        userId = meRow.userId;
+      }
+
+      console.log(
+        `[/api/me] lookup ${authUser.username} => userId = ${
+          userId ?? "NOT FOUND"
+        }`
+      );
+    } catch (err) {
+      console.error("[/api/me] lookup error", err);
+    }
+  }
+
   res.json({
     success: true,
-    userId: u.userId,
-    username: u.username ?? null,
-    accessLevel: u.accessLevel ?? "user",
+    username: authUser.username ?? null,
+    accessLevel: authUser.accessLevel ?? "user",
+    userId,
   });
 });
 
-// Start HTTP/1.1 server (fixes 426 error in Insomnia)
+// Start HTTP/1.1 server 
 const server = http.createServer(app);
 server.listen(PORT, "127.0.0.1", () => {
   console.log(`Server running on http://127.0.0.1:${PORT}`);

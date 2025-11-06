@@ -1,5 +1,7 @@
-// Router for listing & deleting users
-// handle GET (list all users) and DELETE (delete self/admin only)
+// Router for listing and deleting users
+// Handles:
+//   GET    /api/users          -> list all users (need auth)
+//   DELETE /api/users/:userId  -> delete self (or any user if admin)
 
 import express, { Request, Response } from "express";
 import { requireAuth } from "../middleware/requireAuth.js";
@@ -28,7 +30,10 @@ usersRouter.delete(
   requireAuth,
   async (req: Request, res: Response) => {
     try {
-      const authUser = (req as Request & { user?: JwtPayload }).user;
+      // Try to read user info from middleware
+      const authUser =
+        (res.locals.user as JwtPayload | undefined) ||
+        ((req as Request & { user?: JwtPayload }).user);
 
       if (!authUser) {
         return res.status(401).json({
@@ -39,7 +44,19 @@ usersRouter.delete(
 
       const { userId } = req.params;
 
-      const isSelf = authUser.userId === userId;
+      // Load all users 
+      const users = await listAllUsers();
+      const selfRow = users.find((u) => u.username === authUser.username);
+
+      if (!selfRow) {
+        return res.status(404).json({
+          success: false,
+          message: "current user not found",
+        });
+      }
+
+      // Check permissions
+      const isSelf = selfRow.userId === userId;
       const isAdmin = authUser.accessLevel === "admin";
 
       if (!isSelf && !isAdmin) {
@@ -49,8 +66,10 @@ usersRouter.delete(
         });
       }
 
+      // Do delete
       await deleteUserById(userId);
-      res.json({ success: true });
+
+      return res.json({ success: true });
     } catch (error) {
       console.error("[users] delete error", error);
       res.status(500).json({
