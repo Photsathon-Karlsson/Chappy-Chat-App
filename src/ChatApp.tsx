@@ -15,7 +15,7 @@ type Scope = "channel" | "dm";
 
 // Channel data from backend
 type ChannelDTO = {
-  id: string;
+  id?: string; // id can be missing from backend
   name: string;
   unread?: number;
   locked?: boolean;
@@ -23,7 +23,7 @@ type ChannelDTO = {
 
 // DM data from backend
 type DMDTO = {
-  id: string;
+  id?: string; // id can be missing from backend
   name: string;
   unread?: number;
 };
@@ -71,20 +71,23 @@ export default function ChatApp(props: ChatAppProps) {
 
         const list: ChannelDTO[] = Array.isArray(result) ? result : [];
 
-        setChannels(
-          list.map(
-            (c): SidebarItem => ({
-              id: c.id,
-              name: c.name,
-              unread: c.unread,
-              locked: c.locked,
-            })
-          )
-        );
+        // create safe id for each channel (use id if exists, otherwise name)
+        const mappedChannels: SidebarItem[] = list.map((c, index) => {
+          const safeId =
+            c.id ?? c.name ?? `channel-${index}`; // new: never undefined
+          return {
+            id: safeId,
+            name: c.name,
+            unread: c.unread,
+            locked: c.locked,
+          };
+        });
+
+        setChannels(mappedChannels);
 
         // If no chat is active yet, select first channel
-        if (list[0]?.id) {
-          const firstId = list[0].id;
+        if (mappedChannels[0]?.id) {
+          const firstId = mappedChannels[0].id; // use safe id from mapped list
           setActive((prev) =>
             prev ? prev : { scope: "channel", id: firstId }
           );
@@ -120,15 +123,17 @@ export default function ChatApp(props: ChatAppProps) {
 
         const list: DMDTO[] = Array.isArray(result) ? result : [];
 
-        setDms(
-          list.map(
-            (d): SidebarItem => ({
-              id: d.id,
-              name: d.name,
-              unread: d.unread,
-            })
-          )
-        );
+        // create safe id for each DM (use id if exists, otherwise name)
+        const mappedDMs: SidebarItem[] = list.map((d, index) => {
+          const safeId = d.id ?? d.name ?? `dm-${index}`; // new: never undefined
+          return {
+            id: safeId,
+            name: d.name,
+            unread: d.unread,
+          };
+        });
+
+        setDms(mappedDMs);
       } catch {
         if (!cancelled) {
           setError("Failed to load DMs");

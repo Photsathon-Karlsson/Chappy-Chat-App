@@ -1,11 +1,11 @@
 // Routes for Direct Message (DM).
-    // API routes:
-        // GET /api/dms     -> get DMs for logged-in user
-        // GET /api/dms/all -> get ALL DMs (admin only)
-    // DynamoDB DM thread format (two styles):
-        // Type A: PK = "DM", SK = "DM#<userA>#<userB>"
-        // Type B: PK = "DM#<A>#<B>", SK = "META#INFO"
-        // Both can store: { members?: string[], lastMessageAt?: string }
+// API routes:
+//   GET /api/dms     -> get DMs for logged-in user
+//   GET /api/dms/all -> get ALL DMs (admin only)
+// DynamoDB DM thread format (two styles):
+//   Type A: PK = "DM", SK = "DM#<userA>#<userB>"
+//   Type B: PK = "DM#<A>#<B>", SK = "META#INFO"
+// Both can store: { members?: string[], lastMessageAt?: string }
 
 import express, { type Router, type Request, type Response } from "express";
 import { ScanCommand } from "@aws-sdk/lib-dynamodb";
@@ -19,16 +19,19 @@ const router: Router = express.Router();
 
 // One DM record in database
 type DMThread = {
-  id: string;              // ex. "DM#alice#bob"
-  members: string[];       // ex. ["naruto", "totoro"]
-  lastMessageAt?: string;  // When the last message was sent
+  id: string; // ex. "DM#alice#bob"
+  members: string[]; // ex. ["naruto", "totoro"]
+  lastMessageAt?: string; // When the last message was sent
 };
 
-// Data format that we send to the frontend
+// Data format that send to the frontend
 type DMForClient = {
-  dmId: string;        // ex. "DM#alice#bob"
-  username: string;    // the "other" person in this DM, from the logged-in user's view
+  dmId: string; // ex. "DM#alice#bob"
+  username: string; // the "other" person in this DM, from the logged-in user's view
   lastMessageAt?: string;
+  // extra fields to match common frontend pattern (id + name)
+  id?: string; // same as dmId, for easier mapping
+  name?: string; // same as username, for easier mapping
 };
 
 // Helper functions
@@ -88,10 +91,10 @@ function getMembers(obj: Record<string, unknown>, dmId: string): string[] {
   // If no members[] & no DM#userA#userB -> get names from userA & userB fields
   const a = readStr(obj, "userA"); // read userA as string (or "")
   const b = readStr(obj, "userB"); // read userB as string (or "")
-  const out: string[] = [];        // make empty array
-  if (a) out.push(a);              // add userA if found
-  if (b) out.push(b);              // add userB if found
-  return out;                      // return the list
+  const out: string[] = []; // make empty array
+  if (a) out.push(a); // add userA if found
+  if (b) out.push(b); // add userB if found
+  return out; // return the list
 }
 
 // Function to scan all DM data from DynamoDB
@@ -114,11 +117,11 @@ async function scanAllDmMetas(): Promise<DMThread[]> {
   const result = await dbUser.send(scan);
   const rows = (result.Items ?? []) as Array<Record<string, unknown>>;
 
-  // Helper: get string from first matching key (PK or pk, SK or sk)
+  // get string from first matching key (PK or pk, SK or sk)
   const getStrFromKeys = (obj: Record<string, unknown>, ...keys: string[]) =>
     String(keys.map((k) => obj[k]).find((v) => typeof v === "string") ?? "");
 
-  // Keep only valid DM rows (old patterns, might be empty for your data)
+  // Keep only valid DM rows 
   const dmRows = rows.filter((obj) => {
     const PKv = getStrFromKeys(obj, "PK", "pk");
     const SKv = getStrFromKeys(obj, "SK", "sk");
@@ -159,14 +162,17 @@ function mapToClient(all: DMThread[], me: string): DMForClient[] {
 
     return {
       dmId: t.id,
-      username: otherUser,           // field name "username" to match frontend api.ts
+      username: otherUser, // field name "username" to match frontend api.ts
       lastMessageAt: t.lastMessageAt,
+      // duplicate fields for id + name to make frontend mapping easier
+      id: t.id, // same as dmId
+      name: otherUser, // same as username
     };
   });
 }
 
 // fallback DM list if Dynamo does not have any DM meta rows
-//      This matches the frontend fallback list.
+//   This matches the frontend fallback list.
 function fallbackStaticDms(me: string): DMForClient[] {
   const allNames = [
     "Jack-skellington",
@@ -182,6 +188,9 @@ function fallbackStaticDms(me: string): DMForClient[] {
   return names.map((name) => ({
     dmId: `DM#me#${name}`, // same pattern as frontend
     username: name,
+    // fill id + name for safety
+    id: `DM#me#${name}`,  
+    name,  
   }));
 }
 
