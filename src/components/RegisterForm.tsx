@@ -1,41 +1,43 @@
-// LoginForm - simple username & password form
-// get user login info & send it back to the parent with onSubmit()
+// RegisterForm - same layout as LoginForm
+// collects username + password and calls onSubmit()
 
 import { useState } from "react";
 
-export type LoginFormValues = {
+export type RegisterFormValues = {
   username: string;
   password: string;
 };
 
-export default function LoginForm(props: {
-  onSubmit: (values: LoginFormValues) => void; // runs when user clicks "login"
-  onCancel: () => void; // runs when user clicks "cancel"
-  loading?: boolean; // true = disable inputs/buttons
+export default function RegisterForm(props: {
+  onSubmit: (values: RegisterFormValues) => void;
+  onCancel: () => void;
+  loading?: boolean;
 }) {
   const { onSubmit, onCancel, loading } = props;
 
-  // Local state for inputs (save what user types in)
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
 
-  // Submit handler (when form is submitted)
   function handleSubmit(e: React.FormEvent) {
-    e.preventDefault(); // stop page refresh
+    e.preventDefault();
     if (!username.trim() || !password.trim() || loading) return;
     onSubmit({ username: username.trim(), password: password.trim() });
   }
 
   return (
-    <form className="login-form" onSubmit={handleSubmit} aria-label="Login form">
-      <h2 className="login-form-title">Login</h2>
+    <form
+      className="login-form"
+      onSubmit={handleSubmit}
+      aria-label="Register form"
+    >
+      <h2 className="login-form-title">Register</h2>
 
       {/* Username */}
-      <label className="sr-only" htmlFor="login-username">
+      <label className="sr-only" htmlFor="register-username">
         Username
       </label>
       <input
-        id="login-username"
+        id="register-username"
         className="input"
         type="text"
         placeholder="Username"
@@ -46,18 +48,18 @@ export default function LoginForm(props: {
       />
 
       {/* Password */}
-      <label className="sr-only" htmlFor="login-password">
+      <label className="sr-only" htmlFor="register-password">
         Password
       </label>
       <input
-        id="login-password"
+        id="register-password"
         className="input"
         type="password"
         placeholder="Password"
         value={password}
         onChange={(e) => setPassword(e.target.value)}
         disabled={loading}
-        autoComplete="current-password"
+        autoComplete="new-password"
       />
 
       {/* Buttons row */}
@@ -67,7 +69,7 @@ export default function LoginForm(props: {
           className="btn primary"
           disabled={loading || !username.trim() || !password.trim()}
         >
-          {loading ? "Logging in..." : "Log in"}
+          {loading ? "Registering..." : "Confirm Register"}
         </button>
         <button
           type="button"

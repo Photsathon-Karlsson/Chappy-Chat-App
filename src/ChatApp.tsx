@@ -1,61 +1,91 @@
-// Main chat screen.
-    // it combines the sidebar + message list + message input
-    // & connects to the backend API to get channels, DMs, and messages.
+// ChatApp.tsx - main chat layout & logic
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Sidebar, { type SidebarItem } from "./components/Sidebar";
-import MessageList from "./components/MessageList";
+import MessageList, { type Message } from "./components/MessageList";
 import MessageInput from "./components/MessageInput";
-import Header from "./components/Header";
-
 import {
   fetchChannels,
   fetchDMs,
   fetchMessages,
   sendMessage,
-  type MessageDTO,
 } from "./lib/api";
 
-// Define what kind of chat it is — either a "channel" or a "direct message (dm)"
 type Scope = "channel" | "dm";
 
-// shows which chat is currently open
-type ActiveChat = {
-  scope: Scope; // "channel" or "dm"
-  id: string; // unique id of the chat
+// Data shape from API for channels
+type ChannelDTO = {
+  id: string;
+  name: string;
+  unread?: number;
 };
 
-export default function ChatApp() {
-  // Sidebar data (list of channels & DMs)
+// Data shape from API for DMs
+type DMDTO = {
+  id: string;
+  name: string;
+  unread?: number;
+};
+
+// Data shape from API for messages
+type MessageDTO = {
+  id: string;
+  sender: string;
+  text: string;
+  time: string;
+};
+
+type ChatAppProps = {
+  username: string;
+  token?: string; // optional, guest users have no token
+  isGuest: boolean;
+  onLogout: () => void;
+};
+
+export default function ChatApp(props: ChatAppProps) {
+  const { username, token, isGuest, onLogout } = props;
+
+  // Sidebar data
   const [channels, setChannels] = useState<SidebarItem[]>([]);
   const [dms, setDms] = useState<SidebarItem[]>([]);
 
-  // Active chat and messages
-  const [active, setActive] = useState<ActiveChat | undefined>(undefined);
-  const [messages, setMessages] = useState<MessageDTO[]>([]);
-  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  // Current opened chat
+  const [active, setActive] = useState<{ scope: Scope; id: string } | null>(
+    null
+  );
 
-  // To show error message in UI 
+  // Messages for current chat
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Load channel list when the app starts (runs only once)
+  // Load channel list once
   useEffect(() => {
-    let cancelled = false; // stop it if the page closes or changes
+    let cancelled = false;
 
     async function loadChannels() {
       try {
-        const list = await fetchChannels(); // get channel list from API
+        const result = await fetchChannels();
         if (cancelled) return;
 
-        setChannels(list); // save channels in state
+        const list: ChannelDTO[] = Array.isArray(result) ? result : [];
 
-        // If no active chat yet, open the first channel automatically
-        if (!active && list.length > 0) {
-          setActive({ scope: "channel", id: list[0].id });
+        setChannels(
+          list.map((c): SidebarItem => ({
+            id: c.id,
+            name: c.name,
+            unread: c.unread,
+          }))
+        );
+
+        // If nothing selected yet, pick first channel
+        const firstId = list[0]?.id;
+        if (firstId) {
+          setActive((prev) => prev ?? { scope: "channel", id: firstId });
         }
-      } catch (e) {
+      } catch {
         if (!cancelled) {
-          setError((e as Error).message || "Failed to load channels");
+          setError("Failed to load channels");
         }
       }
     }
@@ -63,23 +93,39 @@ export default function ChatApp() {
     loadChannels();
 
     return () => {
-      cancelled = true; // Stop the update if this component is removed
+      cancelled = true;
     };
-    // Run only once (ignore eslint warning)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Load DMs (this will work after login, because fetchDMs uses token)
+  // Load DMs when user has token and is not guest
   useEffect(() => {
     let cancelled = false;
 
+    // Guest or no token => no DM list
+    if (isGuest || !token) {
+      setDms([]);
+      return;
+    }
+
     async function loadDMs() {
       try {
-        const list = await fetchDMs();
+        const authToken = token as string; // token is defined here
+        const result = await fetchDMs(authToken);
         if (cancelled) return;
-        setDms(list);
+
+        const list: DMDTO[] = Array.isArray(result) ? result : [];
+
+        setDms(
+          list.map((d): SidebarItem => ({
+            id: d.id,
+            name: d.name,
+            unread: d.unread,
+          }))
+        );
       } catch {
-        // ignore DM errors (ex. when user not logged in yet)
+        if (!cancelled) {
+          setError("Failed to load DMs");
+        }
       }
     }
 
@@ -88,28 +134,38 @@ export default function ChatApp() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [isGuest, token]);
 
-  // Load messages when the user switches to another chat (channel or DM)
+  // Load messages when active chat changes
   useEffect(() => {
     if (!active) return;
 
-    const { scope, id } = active; // get chat type & id
-
+    const { scope, id } = active;
     let cancelled = false;
 
     async function loadMessages() {
-      setIsLoadingMessages(true);
-      setError(null);
       try {
-        const list = await fetchMessages(scope, id); // get messages from API
+        setIsLoadingMessages(true);
+        setError(null);
+
+        // fetchMessages in api.ts takes only (scope, id)
+        const result = await fetchMessages(scope, id);
+        if (cancelled) return;
+
+        const list: MessageDTO[] = Array.isArray(result) ? result : [];
+
+        const mapped: Message[] = list.map((m) => ({
+          id: m.id,
+          sender: m.sender,
+          text: m.text,
+          time: m.time,
+        }));
+
+        setMessages(mapped);
+      } catch {
         if (!cancelled) {
-          setMessages(list);
-        }
-      } catch (e) {
-        if (!cancelled) {
-          setError((e as Error).message || "Failed to load messages");
-          setMessages([]); // clear messages if failed
+          setError("Failed to load messages");
+          setMessages([]);
         }
       } finally {
         if (!cancelled) {
@@ -123,82 +179,118 @@ export default function ChatApp() {
     return () => {
       cancelled = true;
     };
-  }, [active]); // runs every time the active chat changes
+  }, [active]);
 
-  // When user clicks a channel or DM in the sidebar
+  // Text title above message list
+  const activeTitle = useMemo(() => {
+    if (!active) return "Select a chat";
+
+    const list = active.scope === "channel" ? channels : dms;
+    const found = list.find((x) => x.id === active.id);
+
+    if (found) {
+      if (active.scope === "channel") {
+        return `Chatting in #${found.name}`;
+      }
+      return `Chatting with ${found.name}`;
+    }
+
+    return "Chat";
+  }, [active, channels, dms]);
+
+  // When user clicks a channel or DM
   function handleSelect(scope: Scope, id: string) {
-    setActive({ scope, id }); // update active chat
+    setActive({ scope, id });
   }
 
-  // When user sends a new message
+  // When user sends a message
   async function handleSend(text: string) {
-    if (!active || !text.trim()) return; // ignore empty text or no active chat
+    if (!active) return;
+    if (isGuest || !token) return; // guests cannot send
 
     const { scope, id } = active;
+    const authToken = token as string; // safe after the check above
 
-    const cleanText = text.trim();
+    await sendMessage(scope, id, text, authToken);
 
-    // Show message immediately
-    setMessages((old) => [
-      ...old,
+    const now = new Date();
+    const hh = String(now.getHours()).padStart(2, "0");
+    const mm = String(now.getMinutes()).padStart(2, "0");
+
+    // Add local copy so user sees their own message instantly
+    setMessages((prev) => [
+      ...prev,
       {
-        id: `local-${Date.now()}`, // temporary local id
-        sender: "me",
-        text: cleanText,
-        time: new Date().toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
+        id: `local-${Date.now()}`,
+        sender: username,
+        text,
+        time: `${hh}:${mm}`,
       },
     ]);
-
-    try {
-      await sendMessage(scope, id, cleanText); // send message
-      // keep local message (no reload)
-    } catch {
-      // do nothing if it fails
-    }
   }
 
+  // Active info object for Sidebar
+  const sidebarActive = useMemo(
+    () =>
+      active
+        ? {
+            scope: active.scope as Scope,
+            id: active.id,
+          }
+        : undefined,
+    [active]
+  );
+
   return (
-    <div className="app-root">
-      {/* Header */}
-      <Header />
+    // sidebar left, chat right
+    <div className="app-body">
+      <Sidebar
+        channels={channels}
+        dms={dms}
+        onSelect={handleSelect}
+        active={sidebarActive}
+      />
 
-      {/* Main layout: sidebar on the left, chat area on the right */}
-      <div className="app-layout">
-        <Sidebar
-          channels={channels}
-          dms={dms}
-          onSelect={handleSelect}
-          active={active}
-        />
+      <main className="content">
+        <h2 className="sidebar-title" style={{ marginTop: 0 }}>
+          {activeTitle}
+        </h2>
 
-        <main className="chat-main" aria-label="Main chat area">
-        {/* Show current chat title (#channel or @dm) */}
-          {active && (
-            <div className="chat-header">
-              <h2 className="chat-title">
-                {active.scope === "channel" ? "#" : "@"}
-                {active.id.replace(/^CHANNEL#/, "").replace(/^DM#/, "")}
-              </h2>
-            </div>
-          )}
+        {error && (
+          <div
+            style={{
+              backgroundColor: "#ffccdc",
+              padding: "0.4rem 0.6rem",
+              borderRadius: "8px",
+              marginBottom: "0.75rem",
+            }}
+          >
+            {error}
+          </div>
+        )}
 
-          {/* Show error if something went wrong */}
-          {error && (
-            <div className="chat-error" role="alert">
-              {error}
-            </div>
-          )}
+        <MessageList items={messages} loading={isLoadingMessages} />
 
-          {/* MessageList: show all messages */}
-          <MessageList items={messages} loading={isLoadingMessages} />
+        <div style={{ marginTop: "0.75rem" }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: "0.5rem",
+            }}
+          >
+            <span>
+              {username} {isGuest ? "(read only)" : ""}
+            </span>
+            <button className="btn" onClick={onLogout}>
+              Log out
+            </button>
+          </div>
 
-          {/* Message input box for sending messages */}
-          <MessageInput onSend={handleSend} disabled={!active} />
-        </main>
-      </div>
+          <MessageInput onSend={handleSend} disabled={isGuest || !active} />
+        </div>
+      </main>
     </div>
   );
 }

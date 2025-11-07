@@ -1,4 +1,4 @@
-// Sidebar - shows Channels & DMs and highlights selected item
+// Sidebar - shows Channels & DMs and highlights the selected item
 
 import { useMemo } from "react";
 
@@ -17,13 +17,15 @@ export default function Sidebar(props: {
   active?: { scope: Scope; id: string };
 }) {
   const { channels, dms, onSelect, active } = props;
+
+  // Make a key that tells which item is active
   const activeKey = useMemo(
     () => (active ? `${active.scope}:${active.id}` : ""),
     [active]
   );
 
   return (
-    <aside className="sidebar bg-purple-100 p-2 w-48">
+    <aside className="sidebar">
       <Section
         title="Channels"
         items={channels}
@@ -42,41 +44,43 @@ export default function Sidebar(props: {
   );
 }
 
-function Section({
-  title,
-  items,
-  scope,
-  onSelect,
-  activeKey,
-}: {
+function Section(props: {
   title: string;
   items: SidebarItem[];
   scope: Scope;
   onSelect: (scope: Scope, id: string) => void;
   activeKey: string;
 }) {
+  const { title, items, scope, onSelect, activeKey } = props;
+
   return (
-    <div className="sidebar-section mb-3">
-      <h2 className="font-bold mb-1">{title}</h2>
-      <ul className="space-y-1">
+    <div className="sidebar-section">
+      <h2 className="sidebar-title">{title}</h2>
+      <ul className="sidebar-list">
         {items.map((it) => {
           const key = `${scope}:${it.id}`;
           const isActive = key === activeKey;
+
           return (
             <li key={key}>
               <button
                 type="button"
-                className={`w-full text-left px-2 py-1 rounded ${
-                  isActive ? "bg-pink-200" : "hover:bg-purple-200"
-                }`}
+                className={`sidebar-item ${isActive ? "active" : ""}`}
                 onClick={() => onSelect(scope, it.id)}
               >
-                {it.name}
+                <span>{it.name}</span>
+                {it.unread && it.unread > 0 && (
+                  <span className="badge">{it.unread}</span>
+                )}
               </button>
             </li>
           );
         })}
-        {items.length === 0 && <li className="text-gray-400">(empty)</li>}
+        {items.length === 0 && (
+          <li className="text" style={{ opacity: 0.6 }}>
+            (empty)
+          </li>
+        )}
       </ul>
     </div>
   );
