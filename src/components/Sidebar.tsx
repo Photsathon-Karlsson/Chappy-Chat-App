@@ -1,87 +1,62 @@
-// Sidebar - shows Channels & DMs and highlights the selected item
-
-import { useMemo } from "react";
-
-type Scope = "channel" | "dm";
+// shows list of channels and DMs on the left
 
 export type SidebarItem = {
   id: string;
   name: string;
   unread?: number;
+  locked?: boolean; // show 🔒 icon
 };
 
-export default function Sidebar(props: {
+type SidebarProps = {
   channels: SidebarItem[];
   dms: SidebarItem[];
-  onSelect: (scope: Scope, id: string) => void;
-  active?: { scope: Scope; id: string };
-}) {
-  const { channels, dms, onSelect, active } = props;
+  active?: { scope: "channel" | "dm"; id: string };
+  onSelect: (scope: "channel" | "dm", id: string) => void;
+};
 
-  // Make a key that tells which item is active
-  const activeKey = useMemo(
-    () => (active ? `${active.scope}:${active.id}` : ""),
-    [active]
-  );
+export default function Sidebar({
+  channels,
+  dms,
+  active,
+  onSelect,
+}: SidebarProps) {
+  
+  // Function to render the list of items
+  function renderList(scope: "channel" | "dm", items: SidebarItem[]) {
+    if (!items || items.length === 0) {
+      return <p style={{ marginLeft: "0.5rem" }}>(empty)</p>;
+    }
 
-  return (
-    <aside className="sidebar">
-      <Section
-        title="Channels"
-        items={channels}
-        scope="channel"
-        onSelect={onSelect}
-        activeKey={activeKey}
-      />
-      <Section
-        title="DM"
-        items={dms}
-        scope="dm"
-        onSelect={onSelect}
-        activeKey={activeKey}
-      />
-    </aside>
-  );
-}
-
-function Section(props: {
-  title: string;
-  items: SidebarItem[];
-  scope: Scope;
-  onSelect: (scope: Scope, id: string) => void;
-  activeKey: string;
-}) {
-  const { title, items, scope, onSelect, activeKey } = props;
-
-  return (
-    <div className="sidebar-section">
-      <h2 className="sidebar-title">{title}</h2>
+    return (
       <ul className="sidebar-list">
-        {items.map((it) => {
-          const key = `${scope}:${it.id}`;
-          const isActive = key === activeKey;
+        {items.map((item) => {
+          const isActive =
+            active && active.scope === scope && active.id === item.id;
 
           return (
-            <li key={key}>
-              <button
-                type="button"
-                className={`sidebar-item ${isActive ? "active" : ""}`}
-                onClick={() => onSelect(scope, it.id)}
-              >
-                <span>{it.name}</span>
-                {it.unread && it.unread > 0 && (
-                  <span className="badge">{it.unread}</span>
-                )}
-              </button>
+            <li
+              key={item.id}
+              className={`sidebar-item ${isActive ? "active" : ""}`}
+              onClick={() => onSelect(scope, item.id)}
+            >
+              {/* If it's a channel and locked = true -> show 🔒  */}
+              {scope === "channel" && item.locked ? "🔒 " : "# "}
+              {item.name}
+              {item.unread ? ` (${item.unread})` : ""}
             </li>
           );
         })}
-        {items.length === 0 && (
-          <li className="text" style={{ opacity: 0.6 }}>
-            (empty)
-          </li>
-        )}
       </ul>
-    </div>
+    );
+  }
+
+  return (
+    <aside className="sidebar">
+      <h3>Channels</h3>
+      {renderList("channel", channels)}
+
+      <h3>DM</h3>
+      {renderList("dm", dms)}
+    </aside>
   );
 }

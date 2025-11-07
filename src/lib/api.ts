@@ -1,9 +1,9 @@
 // all API calls for frontend (login, register, users, channels, messages)
 
 const API_BASE =
-  import.meta.env.VITE_API_URL || "http://127.0.0.1:1338";
+  import.meta.env.VITE_API_URL || "http://127.0.0.1:1338/api";
 
-// request + parse JSON + throw error with message */
+// helper: request + parse JSON + throw with message
 async function apiRequest(path: string, options: RequestInit = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
     headers: {
@@ -16,8 +16,8 @@ async function apiRequest(path: string, options: RequestInit = {}) {
   const data = await res.json().catch(() => ({}));
 
   if (!res.ok) {
-    // error message from backend / status code
-    const msg = (data && (data.message as string)) || `Request failed: ${res.status}`;
+    const msg =
+      (data && (data.message as string)) || `Request failed: ${res.status}`;
     throw new Error(msg);
   }
 
@@ -42,7 +42,7 @@ export async function registerUser(username: string, password: string) {
   });
 }
 
-// USERS (admin page)  
+// USERS (admin)  
 
 export async function fetchUsers(token: string) {
   const data = await apiRequest("/users", {
@@ -58,23 +58,18 @@ export async function deleteUser(userId: string, token: string) {
   });
 }
 
-// CHANNELS  
+//CHANNELS  
 
-// get public channel list
-  
 export async function fetchChannels(token?: string) {
   const headers =
     token != null ? { Authorization: `Bearer ${token}` } : undefined;
 
-  const data = await apiRequest("/channels", {
-    headers,
-  });
+  const data = await apiRequest("/channels", { headers });
   return data.channels || [];
 }
 
 //DMs  
 
-// get DM list 
 export async function fetchDMs(token: string) {
   const data = await apiRequest("/dms", {
     headers: { Authorization: `Bearer ${token}` },
@@ -82,7 +77,7 @@ export async function fetchDMs(token: string) {
   return data.dms || [];
 }
 
-// MESSAGES 
+// MESSAGES  
 
 // read messages in channel or DM
   
@@ -103,7 +98,8 @@ export async function fetchMessages(
   return data.messages || [];
 }
 
-//send message to channel or DM 
+// send message to channel or DM
+
 export async function sendMessage(
   kind: "channel" | "dm",
   id: string,
@@ -112,18 +108,11 @@ export async function sendMessage(
 ) {
   const body: Record<string, string> = { kind, text };
 
-  if (kind === "channel") {
-    body.channel = id;
-  } else {
-    body.dmId = id;
-  }
+  if (kind === "channel") body.channel = id;
+  else body.dmId = id;
 
-  const headers: HeadersInit = {
-    "Content-Type": "application/json",
-  };
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
-  }
+  const headers: HeadersInit = { "Content-Type": "application/json" };
+  if (token) headers.Authorization = `Bearer ${token}`;
 
   const data = await apiRequest("/messages", {
     method: "POST",
