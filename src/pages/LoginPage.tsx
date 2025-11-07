@@ -1,20 +1,13 @@
-// Shows the big login card with:
-//   - Register button
-//   - Log in button
-//   - Sign in as Guest button
-// Handles switching between login and register forms
-// & sends login info back to App.tsx
+// LoginPage - shows login / register / guest buttons
+// Handles forms & talks to parent App.tsx
 
 import { useState } from "react";
-import LoginForm from "../components/LoginForm";
+import LoginForm, { type LoginFormValues } from "../components/LoginForm";
 import RegisterForm from "../components/RegisterForm";
-import type { LoginFormValues } from "../components/LoginForm";
 import { loginUser, registerUser } from "../lib/api";
 
 type LoginPageProps = {
-  // Called when a real user logs in successfully
   onLoginSuccess: (user: { username: string; token?: string }) => void;
-  // Called when user wants to continue as guest
   onGuestLogin: () => void;
 };
 
@@ -22,29 +15,22 @@ export default function LoginPage({
   onLoginSuccess,
   onGuestLogin,
 }: LoginPageProps) {
-  // Which tab is active: "login" or "register"
   const [mode, setMode] = useState<"login" | "register">("login");
-
-  // Small text message under the buttons (success / error)
   const [message, setMessage] = useState("");
-
-  // True while we wait for the login API
   const [loading, setLoading] = useState(false);
 
   // Handle login form submit
   async function handleLoginSubmit(values: LoginFormValues) {
     try {
-      setMessage("");
       setLoading(true);
+      setMessage("");
 
-      const result = await loginUser(values.username, values.password);
+      const res = await loginUser(values.username, values.password);
 
-      if (result.success && result.token) {
-        // Pass login info (with real token) to App.tsx
-        onLoginSuccess({ username: values.username, token: result.token });
-        setMessage(`Logged in as ${values.username}`);
+      if (res.success) {
+        onLoginSuccess({ username: values.username, token: res.token });
       } else {
-        setMessage(result.message || "Login failed. Please try again.");
+        setMessage(res.message ?? "Login failed. Please try again.");
       }
     } catch {
       setMessage("Login error. Please try again.");
@@ -56,85 +42,73 @@ export default function LoginPage({
   // Handle register form submit
   async function handleRegisterSubmit(values: LoginFormValues) {
     try {
+      setLoading(true);
       setMessage("");
-      const result = await registerUser(values.username, values.password);
 
-      if (result.success) {
-        // Registration ok -> move user to login tab
-        setMessage("Registered successfully! You can now log in.");
+      const res = await registerUser(values.username, values.password);
+
+      if (res.success) {
+        setMessage("Registered successfully. You can log in now.");
         setMode("login");
       } else {
-        setMessage(result.message || "Registration failed. Try another username.");
+        setMessage(res.message ?? "Registration failed.");
       }
     } catch {
       setMessage("Registration error. Please try again.");
+    } finally {
+      setLoading(false);
     }
   }
 
   return (
-    <section className="login-page">
-      <div className="login-card">
-        {/* App name */}
-        <h1 className="login-heading">Chappy</h1>
-
-        {/* Top buttons (tabs) */}
-        <div className="login-tabs-row">
-          <button
-            className={`login-tab ${mode === "register" ? "login-tab-active" : ""}`}
-            onClick={() => {
-              setMode("register");
-              setMessage("");
-            }}
-            type="button"
-          >
-            Register
-          </button>
-
-          <button
-            className={`login-tab ${mode === "login" ? "login-tab-active" : ""}`}
-            onClick={() => {
-              setMode("login");
-              setMessage("");
-            }}
-            type="button"
-          >
-            Log in
-          </button>
-
-          <button
-            className="login-tab"
-            onClick={() => {
-              setMessage("");
-              onGuestLogin();
-            }}
-            type="button"
-          >
-            Sign in as Guest
-          </button>
-        </div>
-
-        {/* Info message (success / error) */}
-        {message && (
-          <p className="login-message">{message}</p>
-        )}
-
-        {/* Show correct form under the tabs */}
-        {mode === "login" ? (
-          <LoginForm
-            onSubmit={handleLoginSubmit}
-            onCancel={() => setMessage("")}
-            loading={loading}
-          />
-        ) : (
-          <RegisterForm
-            onSubmit={handleRegisterSubmit}
-            onCancel={() => {
-              setMode("login");
-              setMessage("");
-            }}
-          />
-        )}
+    <div className="login-layout">
+      {/* Top tabs */}
+      <div className="login-tabs">
+        <button
+          type="button"
+          className={`login-tab ${mode === "register" ? "active" : ""}`}
+          onClick={() => setMode("register")}
+          disabled={loading}
+        >
+          Register
+        </button>
+        <button
+          type="button"
+          className={`login-tab ${mode === "login" ? "active" : ""}`}
+          onClick={() => setMode("login")}
+          disabled={loading}
+        >
+          Log in
+        </button>
+        <button
+          type="button"
+          className="login-tab"
+          onClick={onGuestLogin}
+          disabled={loading}
+        >
+          Sign in as Guest
+        </button>
       </div>
-    </section>
+
+      {message && <p className="login-message">{message}</p>}
+
+      {/* Correct form for each mode */}
+      {mode === "login" ? (
+        <LoginForm
+          onSubmit={handleLoginSubmit}
+          onCancel={() => setMessage("")}
+          loading={loading}
+        />
+      ) : (
+        <RegisterForm
+          onSubmit={handleRegisterSubmit}
+          onCancel={() => {
+            setMode("login");
+            setMessage("");
+          }}
+          loading={loading}
+        />
+      )}
+    </div>
   );
 }
