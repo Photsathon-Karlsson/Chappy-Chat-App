@@ -132,8 +132,10 @@ app.get("/api/me", requireAuth, async (req: Request, res: Response) => {
   });
 });
 
-// Start HTTP/1.1 server 
+// Start HTTP/1.1 server
 const server = http.createServer(app);
-server.listen(PORT, "127.0.0.1", () => {
-  console.log(`Server running on http://127.0.0.1:${PORT}`);
+
+// listen on PORT only (host 0.0.0.0) so Render can detect the open port
+server.listen(PORT, () => {
+  console.log(`Server running on http://0.0.0.0:${PORT}`);
 });
