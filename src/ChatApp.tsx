@@ -1,6 +1,11 @@
-// ChatApp.tsx - main chat layout and logic
+// main chat layout
 
-import { useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import Sidebar, { type SidebarItem } from "./components/Sidebar";
 import MessageList, { type Message } from "./components/MessageList";
 import MessageInput from "./components/MessageInput";
@@ -9,13 +14,14 @@ import {
   fetchDMs,
   fetchMessages,
   sendMessage,
+  sendPublicMessage, // new : guest API
 } from "./lib/api";
 
 type Scope = "channel" | "dm";
 
 // Channel data from backend
 type ChannelDTO = {
-  id?: string; // id can be missing from backend
+  id?: string;          // id can be missing from backend
   name: string;
   unread?: number;
   locked?: boolean;
@@ -23,7 +29,7 @@ type ChannelDTO = {
 
 // DM data from backend
 type DMDTO = {
-  id?: string; // id can be missing from backend
+  id?: string;          // id can be missing from backend
   name: string;
   unread?: number;
 };
@@ -31,14 +37,16 @@ type DMDTO = {
 // Message data from backend
 type MessageDTO = {
   id: string;
-  sender: string;
+  sender?: string;
+  author?: string;
   text: string;
-  time: string;
+  time?: string;
+  createdAt?: string;
 };
 
 type ChatAppProps = {
   username: string;
-  token?: string; // optional
+  token?: string;       // JWT token for logged in user
   isGuest: boolean;
   onLogout: () => void;
 };
@@ -46,21 +54,21 @@ type ChatAppProps = {
 export default function ChatApp(props: ChatAppProps) {
   const { username, token, isGuest, onLogout } = props;
 
-  // Sidebar data
+  // sidebar data
   const [channels, setChannels] = useState<SidebarItem[]>([]);
   const [dms, setDms] = useState<SidebarItem[]>([]);
 
-  // Current chat
+  // current selected chat (channel or dm)
   const [active, setActive] = useState<{ scope: Scope; id: string } | null>(
     null
   );
 
-  // Messages for active chat
+  // messages for current chat
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Load channels when app or login state changes
+  // load channels when login state changes
   useEffect(() => {
     let cancelled = false;
 
@@ -71,26 +79,41 @@ export default function ChatApp(props: ChatAppProps) {
 
         const list: ChannelDTO[] = Array.isArray(result) ? result : [];
 
-        // create safe id for each channel (use id if exists, otherwise name)
+        // map channels + decide locked flag by name
         const mappedChannels: SidebarItem[] = list.map((c, index) => {
-          const safeId =
-            c.id ?? c.name ?? `channel-${index}`; // new: never undefined
+          const safeId = c.id ?? c.name ?? `channel-${index}`;
+
+          let locked = c.locked ?? false;
+          const nameLower = c.name.toLowerCase();
+
+          // private rooms
+          if (
+            nameLower === "berserk" ||
+            nameLower === "bleach" ||
+            nameLower === "one-piece"
+          ) {
+            locked = true;
+          } else if (nameLower === "general") {
+            // open room
+            locked = false;
+          }
+
           return {
             id: safeId,
             name: c.name,
             unread: c.unread,
-            locked: c.locked,
+            locked,
           };
         });
 
         setChannels(mappedChannels);
 
-        // If no chat is active yet, select first channel
-        if (mappedChannels[0]?.id) {
-          const firstId = mappedChannels[0].id; // use safe id from mapped list
-          setActive((prev) =>
-            prev ? prev : { scope: "channel", id: firstId }
-          );
+        // if nothing selected yet -> pick first channel
+        if (!active && mappedChannels[0]?.id) {
+          setActive({
+            scope: "channel",
+            id: mappedChannels[0].name, // new : use channel name for API
+          });
         }
       } catch {
         if (!cancelled) {
@@ -104,13 +127,13 @@ export default function ChatApp(props: ChatAppProps) {
     return () => {
       cancelled = true;
     };
-  }, [isGuest, token]);
+  }, [isGuest, token, active]);
 
-  // Load DMs for logged in user
+  // load DMs when logged in
   useEffect(() => {
     let cancelled = false;
 
-    // Guest or no token means no DMs
+    // guest or no token -> no DMs
     if (isGuest || !token) {
       setDms([]);
       return;
@@ -123,9 +146,8 @@ export default function ChatApp(props: ChatAppProps) {
 
         const list: DMDTO[] = Array.isArray(result) ? result : [];
 
-        // create safe id for each DM (use id if exists, otherwise name)
         const mappedDMs: SidebarItem[] = list.map((d, index) => {
-          const safeId = d.id ?? d.name ?? `dm-${index}`; // new: never undefined
+          const safeId = d.id ?? d.name ?? `dm-${index}`;
           return {
             id: safeId,
             name: d.name,
@@ -148,7 +170,18 @@ export default function ChatApp(props: ChatAppProps) {
     };
   }, [isGuest, token]);
 
-  // Load messages when active chat changes
+  // guest can only use channels that are NOT locked (ex. #general)
+  const guestCanUseCurrentChannel = useCallback((): boolean => {
+    if (!active) return false;
+    if (active.scope !== "channel") return false;
+
+    const ch = channels.find((c) => c.id === active.id || c.name === active.id);
+    if (!ch) return false;
+
+    return !ch.locked;
+  }, [active, channels]);
+
+  // load messages when active chat changes
   useEffect(() => {
     if (!active) return;
 
@@ -156,6 +189,14 @@ export default function ChatApp(props: ChatAppProps) {
     let cancelled = false;
 
     async function loadMessages() {
+      // if guest + locked channel -> do NOT load messages
+      if (isGuest && scope === "channel" && !guestCanUseCurrentChannel()) {
+        setIsLoadingMessages(false);
+        setError(null);
+        setMessages([]);
+        return;
+      }
+
       try {
         setIsLoadingMessages(true);
         setError(null);
@@ -165,12 +206,21 @@ export default function ChatApp(props: ChatAppProps) {
 
         const list: MessageDTO[] = Array.isArray(result) ? result : [];
 
-        const mapped: Message[] = list.map((m) => ({
-          id: m.id,
-          sender: m.sender,
-          text: m.text,
-          time: m.time,
-        }));
+        const mapped: Message[] = list.map((m) => {
+          const sender = m.sender || m.author || "unknown";
+          const time =
+            m.time ||
+            (m.createdAt && m.createdAt.includes("T")
+              ? m.createdAt.split("T")[1].slice(0, 5)
+              : "");
+
+          return {
+            id: m.id,
+            sender,
+            text: m.text,
+            time,
+          };
+        });
 
         setMessages(mapped);
       } catch {
@@ -190,54 +240,118 @@ export default function ChatApp(props: ChatAppProps) {
     return () => {
       cancelled = true;
     };
-  }, [active]);
+  }, [active, channels, isGuest, guestCanUseCurrentChannel]);
 
-  // Title text above messages
+  // title text above messages
   const activeTitle = useMemo(() => {
     if (!active) return "Select a chat";
 
     const list = active.scope === "channel" ? channels : dms;
-    const found = list.find((x) => x.id === active.id);
+    const found =
+      list.find((x) => x.id === active.id) ||
+      list.find((x) => x.name === active.id);
 
-    if (found) {
-      if (active.scope === "channel") {
-        return `Chatting in #${found.name}`;
+    if (!found) return "Chat";
+
+    if (active.scope === "channel") {
+      if (isGuest && found.locked) {
+        return "Locked channel – please log in to chat.";
       }
-      return `Chatting with ${found.name}`;
+      return `Chatting in #${found.name}`;
     }
 
-    return "Chat";
-  }, [active, channels, dms]);
+    return `Chatting with ${found.name}`;
+  }, [active, channels, dms, isGuest]);
 
-  // When user clicks a channel or DM
+  // when user clicks a channel or DM in sidebar
   function handleSelect(scope: Scope, id: string) {
     setActive({ scope, id });
   }
 
-  // When user sends a message
+  // when user sends a message
   async function handleSend(text: string) {
     if (!active) return;
-    if (isGuest || !token) return;
+
+    const trimmed = text.trim();
+    if (!trimmed) {
+      // ignore empty message (also avoids 400 "text is required")
+      return;
+    }
 
     const { scope, id } = active;
 
-    await sendMessage(scope, id, text, token as string);
+    // guests are not allowed to send DMs
+    if (scope === "dm" && isGuest) {
+      return;
+    }
 
-    const now = new Date();
-    const hh = String(now.getHours()).padStart(2, "0");
-    const mm = String(now.getMinutes()).padStart(2, "0");
+    // guest sending in open channel (ex. #general)
+    if (isGuest && scope === "channel") {
+      if (!guestCanUseCurrentChannel()) {
+        // extra safety: guest in locked channel -> block send
+        return;
+      }
 
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: `local-${Date.now()}`,
-        sender: username,
-        text,
-        time: `${hh}:${mm}`,
-      },
-    ]);
+      try {
+        // new : call backend public API to store in DB
+        const saved = await sendPublicMessage(id, trimmed);
+
+        const sender = saved.sender || saved.author || "Guest";
+        const time =
+          saved.time ||
+          (saved.createdAt && saved.createdAt.includes("T")
+            ? saved.createdAt.split("T")[1].slice(0, 5)
+            : "");
+
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: saved.id || `guest-local-${Date.now()}`,
+            sender,
+            text: saved.text,
+            time,
+          },
+        ]);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "send failed";
+        console.error("send public message failed", msg);
+        setError("Failed to send message");
+      }
+
+      return;
+    }
+
+    // logged-in user: need token and send to backend
+    if (!token) return;
+
+    try {
+      const saved = await sendMessage(scope, id, trimmed, token as string);
+
+      const sender = saved.sender || saved.author || username;
+      const time =
+        saved.time ||
+        (saved.createdAt && saved.createdAt.includes("T")
+          ? saved.createdAt.split("T")[1].slice(0, 5)
+          : "");
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: saved.id || `local-${Date.now()}`,
+          sender,
+          text: saved.text,
+          time,
+        },
+      ]);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "send failed";
+      console.error("send message failed", msg);
+      setError("Failed to send message");
+      return;
+    }
   }
 
+  // active key for sidebar highlight
   const sidebarActive = useMemo(
     () =>
       active
@@ -256,6 +370,7 @@ export default function ChatApp(props: ChatAppProps) {
         dms={dms}
         onSelect={handleSelect}
         active={sidebarActive}
+        isGuest={isGuest}
       />
 
       <main className="chat-main">
@@ -267,15 +382,25 @@ export default function ChatApp(props: ChatAppProps) {
 
         <div className="chat-footer">
           <div className="chat-user-row">
-            <span>
-              {username} {isGuest ? "(read only)" : ""}
-            </span>
+            {/* show only username (no "(read only)" text) */}
+            <span>{username}</span>
             <button className="btn" onClick={onLogout}>
               Log out
             </button>
           </div>
 
-          <MessageInput onSend={handleSend} disabled={isGuest || !active} />
+          <MessageInput
+            onSend={handleSend}
+            disabled={
+              !active ||
+              // guest cannot type in locked channel
+              (isGuest &&
+                active.scope === "channel" &&
+                !guestCanUseCurrentChannel()) ||
+              // logged-in user in DM but somehow no token
+              (!isGuest && active.scope === "dm" && !token)
+            }
+          />
         </div>
       </main>
     </div>

@@ -1,11 +1,12 @@
-// all API calls for frontend (login, register, users, channels, messages)
+// all API calls for the frontend (login, register, users, channels, messages)
 
 const API_BASE =
   import.meta.env.VITE_API_URL || "http://127.0.0.1:1338/api";
 
-// helper: request + parse JSON + throw with message
+// send HTTP request, read JSON, throw error if not OK
 async function apiRequest(path: string, options: RequestInit = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
+    // always send JSON
     headers: {
       "Content-Type": "application/json",
       ...(options.headers || {}),
@@ -13,9 +14,11 @@ async function apiRequest(path: string, options: RequestInit = {}) {
     ...options,
   });
 
+  // try to read JSON, but if no body then return empty object
   const data = await res.json().catch(() => ({}));
 
   if (!res.ok) {
+    // backend usually sends { message: "something" }
     const msg =
       (data && (data.message as string)) || `Request failed: ${res.status}`;
     throw new Error(msg);
@@ -24,8 +27,7 @@ async function apiRequest(path: string, options: RequestInit = {}) {
   return data;
 }
 
-// AUTH  
-
+// AUTH (login / register)
 export async function loginUser(username: string, password: string) {
   const body = { username, password };
   return apiRequest("/login", {
@@ -42,7 +44,7 @@ export async function registerUser(username: string, password: string) {
   });
 }
 
-// USERS (admin)  
+// USERS (admin area)
 
 export async function fetchUsers(token: string) {
   const data = await apiRequest("/users", {
@@ -58,9 +60,10 @@ export async function deleteUser(userId: string, token: string) {
   });
 }
 
-//CHANNELS  
+// CHANNELS
 
 export async function fetchChannels(token?: string) {
+  // if have token -> send it, else no Authorization header
   const headers =
     token != null ? { Authorization: `Bearer ${token}` } : undefined;
 
@@ -68,7 +71,7 @@ export async function fetchChannels(token?: string) {
   return data.channels || [];
 }
 
-//DMs  
+// DMs
 
 export async function fetchDMs(token: string) {
   const data = await apiRequest("/dms", {
@@ -77,15 +80,16 @@ export async function fetchDMs(token: string) {
   return data.dms || [];
 }
 
-// MESSAGES  
+// MESSAGES
 
-// read messages in channel or DM
-  
+// get messages from a channel or a DM
 export async function fetchMessages(
   kind: "channel" | "dm",
   id: string,
   token?: string
 ) {
+  // for channels that send ?channel=<channel-name>
+  // for DMs that send ?dmId=DM#...
   const query =
     kind === "channel"
       ? `/messages?kind=channel&channel=${encodeURIComponent(id)}`
@@ -98,25 +102,67 @@ export async function fetchMessages(
   return data.messages || [];
 }
 
-// send message to channel or DM
-
+// send a new message to a channel or a DM (logged-in user)
 export async function sendMessage(
   kind: "channel" | "dm",
   id: string,
   text: string,
-  token?: string
+  token: string
 ) {
-  const body: Record<string, string> = { kind, text };
+  // make sure that never send only spaces
+  const cleanText = text.trim();
+  if (!cleanText) {
+    throw new Error("Message text is empty");
+  }
 
-  if (kind === "channel") body.channel = id;
-  else body.dmId = id;
+  // body to send to backend
+  const body: Record<string, string> = { kind, text: cleanText };
 
-  const headers: HeadersInit = { "Content-Type": "application/json" };
-  if (token) headers.Authorization = `Bearer ${token}`;
+  if (kind === "channel") {
+    // for channels that send channel name in "channel"
+    body.channel = id;
+  } else {
+    // for DMs that send dm id in "dmId"
+    body.dmId = id;
+  }
 
-  const data = await apiRequest("/messages", {
+  // build query string (duplicate data in query string for safety)
+  const params = new URLSearchParams();
+  params.set("kind", kind);
+  params.set("text", cleanText);
+  if (kind === "channel") {
+    params.set("channel", id);
+  } else {
+    params.set("dmId", id);
+  }
+
+  const path = `/messages?${params.toString()}`;
+
+  const data = await apiRequest(path, {
     method: "POST",
-    headers,
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+  });
+
+  // backend returns { success: true, message: {...} }
+  return data.message;
+}
+
+// guest can send message in #general only
+export async function sendPublicMessage(channel: string, text: string) {
+  const cleanText = text.trim();
+  if (!cleanText) {
+    throw new Error("Message text is empty");
+  }
+
+  const body = {
+    kind: "channel",
+    channel,
+    text: cleanText,
+  };
+
+  const data = await apiRequest("/messages/public", {
+    method: "POST",
     body: JSON.stringify(body),
   });
 

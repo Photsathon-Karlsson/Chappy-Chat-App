@@ -1,24 +1,28 @@
-// Sidebar - shows Channels and DMs on the left
+// Sidebar - shows Channels & DMs on the left
 
 import { useMemo } from "react";
 
 type Scope = "channel" | "dm";
 
 export type SidebarItem = {
-  id?: string; // id can be missing, so we mark it as optional
+  id: string;
   name: string;
   unread?: number;
   locked?: boolean; // true for private channels
 };
 
-export default function Sidebar(props: {
+type SidebarProps = {
   channels: SidebarItem[];
   dms: SidebarItem[];
   onSelect: (scope: Scope, id: string) => void;
   active?: { scope: Scope; id: string };
-}) {
-  const { channels, dms, onSelect, active } = props;
+  isGuest: boolean; // can show locks only for guests
+};
 
+export default function Sidebar(props: SidebarProps) {
+  const { channels, dms, onSelect, active, isGuest } = props;
+
+  // Build "channel:123" or "dm:abc" for easy comparison
   const activeKey = useMemo(
     () => (active ? `${active.scope}:${active.id}` : ""),
     [active]
@@ -32,6 +36,7 @@ export default function Sidebar(props: {
         scope="channel"
         onSelect={onSelect}
         activeKey={activeKey}
+        isGuest={isGuest}
       />
       <Section
         title="DM"
@@ -39,6 +44,7 @@ export default function Sidebar(props: {
         scope="dm"
         onSelect={onSelect}
         activeKey={activeKey}
+        isGuest={isGuest}
       />
     </aside>
   );
@@ -50,6 +56,7 @@ type SectionProps = {
   scope: Scope;
   onSelect: (scope: Scope, id: string) => void;
   activeKey: string;
+  isGuest: boolean;
 };
 
 function Section({
@@ -58,20 +65,24 @@ function Section({
   scope,
   onSelect,
   activeKey,
+  isGuest,
 }: SectionProps) {
+  const showDmGuestMessage = scope === "dm" && isGuest && items.length === 0;
+
   return (
     <div className="sidebar-section">
       <h2 className="sidebar-title">{title}</h2>
       <ul className="sidebar-list">
-        {items.map((it, index) => {
-          // new: check if this item has a real id
-          const hasRealId = Boolean(it.id);
+        {items.map((it) => {
+          const key = `${scope}:${it.id}`;
+          const isActive = key === activeKey;
 
-          // new: create a safe id for React key (no "undefined")
-          const safeKeyId = hasRealId ? it.id! : `temp-${scope}-${index}`;
+          const baseLabel =
+            scope === "channel" ? `# ${it.name}` : it.name;
 
-          const key = `${scope}:${safeKeyId}`;
-          const isActive = hasRealId && key === activeKey; // new: only active when real id exists
+          // Guests see 🔒 next to locked channels
+          const showLockForGuestChannel =
+            isGuest && scope === "channel" && it.locked;
 
           return (
             <li key={key}>
@@ -80,29 +91,15 @@ function Section({
                 className={`sidebar-item-button ${
                   isActive ? "active" : ""
                 }`}
-                // new: only call onSelect when there is a real id
-                onClick={() => {
-                  if (hasRealId) {
-                    onSelect(scope, it.id!);
-                  }
-                }}
-                // new: disable button if there is no id (cannot select)
-                disabled={!hasRealId}
+                onClick={() => onSelect(scope, it.id)}
               >
                 <span className="sidebar-item-left">
-                  {scope === "channel" ? `# ${it.name}` : it.name}
+                  {baseLabel}
+                  {showLockForGuestChannel ? " 🔒" : ""}
                 </span>
 
                 <span className="sidebar-item-right">
-                  {it.locked && (
-                    <span
-                      className="sidebar-lock"
-                      aria-label="Locked channel"
-                      title="Locked channel"
-                    >
-                      🔒
-                    </span>
-                  )}
+                  {/* Only show unread badge on the right side */}
                   {it.unread && it.unread > 0 && (
                     <span className="badge">{it.unread}</span>
                   )}
@@ -111,8 +108,19 @@ function Section({
             </li>
           );
         })}
+
+        {/* If no items -> show helper text */}
         {items.length === 0 && (
-          <li className="sidebar-empty">(empty)</li>
+          <li className="sidebar-empty">
+            {showDmGuestMessage ? (
+              <>
+                <span aria-hidden="true">🔒</span>{" "}
+                <span>Log in to use DMs</span>
+              </>
+            ) : (
+              "(empty)"
+            )}
+          </li>
         )}
       </ul>
     </div>

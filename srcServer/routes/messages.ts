@@ -1,7 +1,8 @@
 // Message Routes (Channel & DM)
 
-    // - GET  /api/messages -> get messages from channel or DM
-    // - POST /api/messages -> send new message (need login)
+// - GET  /api/messages           -> get messages from channel or DM
+// - POST /api/messages           -> send new message (need login)
+// - POST /api/messages/public    -> guest can send message in #general
 
 // DynamoDB table (2 key styles)
 //   Channel messages:
@@ -25,6 +26,9 @@ import { randomUUID } from "crypto";
 
 const router: Router = express.Router();
 
+// make sure JSON body is parsed even if global config changes
+router.use(express.json());
+
 // Types for request/response (Chat message object structure)
 type ChatMessage = {
   id: string; // ex. "MSG#2025-11-03T08:30:00.000Z#uuid"
@@ -39,7 +43,14 @@ type ChatMessage = {
   time?: string; // short time "HH:MM"
 };
 
-// Function to safely read a string value from an object
+type MessagesCreateBody = {
+  kind?: string;
+  text?: string;
+  channel?: string;
+  dmId?: string;
+};
+
+// Function to safely read a string value from a plain object
 function readStr(obj: Record<string, unknown>, key: string): string {
   const v = obj[key];
   return typeof v === "string" ? v : "";
@@ -58,37 +69,56 @@ function getAuthUsernameFromLocals(res: Response): string {
 
 // Function to read author from multiple possible keys
 function readAuthor(obj: Record<string, unknown>): string {
-  // "author" first, then common alternatives
+  // Try several key names, pick the first non-empty
   return (
     readStr(obj, "author") ||
-    readStr(obj, "sender") ||  
-    readStr(obj, "username") ||  
-    readStr(obj, "user")  
+    readStr(obj, "sender") ||
+    readStr(obj, "username") ||
+    readStr(obj, "user")
   );
 }
 
 // Function to read text from multiple possible keys
 function readMessageText(obj: Record<string, unknown>): string {
-  return readStr(obj, "text") || readStr(obj, "message"); // new: "message" fallback
+  // Main key is "text", fallback "message"
+  return readStr(obj, "text") || readStr(obj, "message");
+}
+
+// read value from body or query (for safety when body is empty)
+function readFromBody(req: Request, key: string): string {
+  const body = req.body as MessagesCreateBody | undefined;
+  const v = body?.[key as keyof MessagesCreateBody];
+  return typeof v === "string" ? v : "";
+}
+
+function readFromQuery(req: Request, key: string): string {
+  const q = (req.query as Record<string, unknown>)[key];
+  return typeof q === "string" ? q : "";
+}
+
+function readBodyOrQuery(req: Request, key: string): string {
+  const fromBody = readFromBody(req, key);
+  if (isNonEmpty(fromBody)) return fromBody;
+  return readFromQuery(req, key);
 }
 
 // Convert a DynamoDB item to ChatMessage (works for both patterns)
 function mapItemToMessage(obj: Record<string, unknown>): ChatMessage | null {
   const PK = readStr(obj, "PK") || readStr(obj, "pk");
   const SK = readStr(obj, "SK") || readStr(obj, "sk");
-  const text = readMessageText(obj); // new: use helper for text
-  const author = readAuthor(obj); // new: use helper for author
+  const text = readMessageText(obj);
+  const author = readAuthor(obj);
   let createdAt = readStr(obj, "createdAt");
   let id = readStr(obj, "id");
 
   // Get ISO timestamp from SK key (ex. "MSG#<iso>#<uuid>" or "TS#<iso>#<uuid>")
   const parseFromKey = (s: string): string => {
-    const parts = s.split("#"); // split by "#"
+    const parts = s.split("#");
     if (parts.length >= 2) {
       const iso = parts[1]; // part[1] should be ISO time
-      if (iso && iso.includes("T")) return iso; // valid ISO found
+      if (iso && iso.includes("T")) return iso;
     }
-    return ""; // return empty if not found
+    return "";
   };
 
   // If createdAt or id missing, try to get from SK
@@ -106,11 +136,9 @@ function mapItemToMessage(obj: Record<string, unknown>): ChatMessage | null {
 
   // Pattern A
   if (PK.startsWith("CHANNEL#")) {
-    // Channel message
     kind = "channel";
     channel = PK.slice("CHANNEL#".length);
   } else if (PK.startsWith("DM#")) {
-    // DM message
     kind = "dm";
     dmId = PK;
   } else {
@@ -145,7 +173,6 @@ function mapItemToMessage(obj: Record<string, unknown>): ChatMessage | null {
     author,
     text,
     createdAt,
-    // duplicate fields for frontend
     sender: author,
     time: timeShort,
   };
@@ -229,6 +256,7 @@ async function fetchMessages(
   msgs = filtered
     .map(mapItemToMessage)
     .filter((x): x is ChatMessage => !!x);
+
   // Sort messages by createdAt (ascending)
   msgs.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   return msgs.slice(0, limit);
@@ -289,7 +317,6 @@ async function createMessage(params: {
     author: params.author,
     text: params.text,
     createdAt: now,
-    // duplicate fields for frontend
     sender: params.author,
     time: timeShort,
   };
@@ -340,7 +367,6 @@ router.get("/", async (req: Request, res: Response) => {
       message: "kind must be 'channel' or 'dm'",
     });
   } catch (err) {
-    // Handle errors
     const msg = err instanceof Error ? err.message : "unknown error";
     console.error("[messages] list error:", msg);
     return res
@@ -349,11 +375,54 @@ router.get("/", async (req: Request, res: Response) => {
   }
 });
 
+// POST /api/messages/public  -> guest can send in #general without login
+router.post("/public", async (req: Request, res: Response) => {
+  try {
+    const kind = readFromBody(req, "kind").toLowerCase();
+    const text = readFromBody(req, "text");
+    const channel = readFromBody(req, "channel");
+
+    // Only allow channel messages to #general
+    if (kind !== "channel" || channel !== "general") {
+      return res
+        .status(400)
+        .json({ success: false, message: "only general channel is public" });
+    }
+
+    if (!isNonEmpty(text)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "text is required" });
+    }
+
+    // Guest does not have real account, use fixed name
+    const author = "Guest";
+
+    const saved = await createMessage({
+      kind: "channel",
+      channel,
+      author,
+      text,
+    });
+
+    return res.status(201).json({ success: true, message: saved });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "unknown error";
+    console.error("[messages] public create error:", msg);
+    return res
+      .status(500)
+      .json({ success: false, message: "create failed" });
+  }
+});
+
 // POST /api/messages  -> create a new message (require auth)
 router.post("/", requireAuth, async (req: Request, res: Response) => {
   try {
-    // Get logged-in username
-    // NOTE: requireAuth puts user object on res.locals.user
+    // debug log (see raw body / query when debugging)
+    console.log("[messages] create body:", req.body);
+    console.log("[messages] create query:", req.query);
+
+    // Get logged-in username (requireAuth puts user object on res.locals.user)
     const me = getAuthUsernameFromLocals(res);
     if (!isNonEmpty(me)) {
       return res
@@ -361,8 +430,9 @@ router.post("/", requireAuth, async (req: Request, res: Response) => {
         .json({ success: false, message: "unauthorized" });
     }
 
-    const kind = String(req.body?.kind || "").toLowerCase();
-    const text = String(req.body?.text || "");
+    const kindRaw = readBodyOrQuery(req, "kind").toLowerCase();
+    const text = readBodyOrQuery(req, "text");
+
     if (!isNonEmpty(text)) {
       return res
         .status(400)
@@ -370,8 +440,8 @@ router.post("/", requireAuth, async (req: Request, res: Response) => {
     }
 
     // Channel message
-    if (kind === "channel") {
-      const channel = String(req.body?.channel || "");
+    if (kindRaw === "channel") {
+      const channel = readBodyOrQuery(req, "channel");
       if (!isNonEmpty(channel)) {
         return res
           .status(400)
@@ -387,8 +457,8 @@ router.post("/", requireAuth, async (req: Request, res: Response) => {
     }
 
     // DM message
-    if (kind === "dm") {
-      const dmId = String(req.body?.dmId || "");
+    if (kindRaw === "dm") {
+      const dmId = readBodyOrQuery(req, "dmId");
       if (!isNonEmpty(dmId) || !dmId.startsWith("DM#")) {
         return res.status(400).json({
           success: false,
