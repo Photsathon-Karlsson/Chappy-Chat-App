@@ -67,6 +67,12 @@ body {
   align-items: center;
   justify-content: center;
 }
+/* register text warning */
+.input-hint {
+  font-size: 0.85rem;
+  color: #CDC1FF; 
+  margin-top: 4px;
+}
 
 /* Login layout - center the login form */
 .login-layout {
