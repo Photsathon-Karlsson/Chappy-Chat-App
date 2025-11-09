@@ -129,8 +129,8 @@ app.get("/api/me", requireAuth, async (req: Request, res: Response) => {
 // This should be after all /api routes, so /api/* still works.
 
 const __dirnamePath = path.resolve();
-// Vite build output is in ../dist (from srcServer folder)
-const frontendDistPath = path.join(__dirnamePath, "../dist");
+// Vite build will be copied into srcServer/dist (for Render runtime)
+const frontendDistPath = path.join(__dirnamePath, "dist");
 
 // Serve static files from the dist folder
 app.use(express.static(frontendDistPath));
