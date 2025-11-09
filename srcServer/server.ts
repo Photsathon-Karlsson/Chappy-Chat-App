@@ -10,6 +10,7 @@ import express, {
 } from "express";
 import cors from "cors";
 import http from "http"; // use Node HTTP module to force HTTP/1.1 (insomnia problem)
+import path from "path"; // for serving frontend build files
 
 import registerRouter from "./routes/register.js"; // register route (for new user signup)
 import channelsRouter from "./routes/channels.js"; // channels routes (public + locked lists)
@@ -130,6 +131,15 @@ app.get("/api/me", requireAuth, async (req: Request, res: Response) => {
     accessLevel: authUser.accessLevel ?? "user",
     userId,
   });
+});
+
+// Serve frontend build (React app)  
+// This makes the fullstack app serve the React build from the same server.
+const __dirnamePath = path.resolve();
+app.use(express.static(path.join(__dirnamePath, "../frontend/dist"))); // change path if needed
+
+app.get("*", (req: Request, res: Response) => {
+  res.sendFile(path.join(__dirnamePath, "../frontend/dist/index.html"));
 });
 
 // Start HTTP/1.1 server
