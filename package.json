@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "build": "vite build",
     "build-frontend": "tsc -b && vite build",
     "build-server": "tsc -p ./srcServer/tsconfig.json",
     "start-server": "node ./distServer/server.js",
