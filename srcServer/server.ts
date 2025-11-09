@@ -1,5 +1,6 @@
 // Start the Express server for Chappy backend.
 // Sets up middlewares, CORS, logger, routes and health check.
+// Now also serves the built frontend (for fullstack deploy).
 
 import "dotenv/config";
 import express, {
@@ -57,15 +58,6 @@ app.use((req: Request, _res: Response, next: NextFunction) => {
 // Health check route (test if API is ok)
 app.get("/api/health", (_req: Request, res: Response) => {
   res.status(200).json({ status: "ok", message: "API OK" });
-});
-
-// Root message
-app.get("/", (_req: Request, res: Response) => {
-  res.json({
-    name: "Chappy API",
-    status: "ok",
-    docs: "Use /api/health to test the server",
-  });
 });
 
 // Register (user signup)
@@ -133,13 +125,20 @@ app.get("/api/me", requireAuth, async (req: Request, res: Response) => {
   });
 });
 
-// Serve frontend build (React app)  
-// This makes the fullstack app serve the React build from the same server.
-const __dirnamePath = path.resolve();
-app.use(express.static(path.join(__dirnamePath, "../frontend/dist"))); // change path if needed
+// Serve frontend build (React SPA) 
+// This should be after all /api routes, so /api/* still works.
 
-app.get("*", (req: Request, res: Response) => {
-  res.sendFile(path.join(__dirnamePath, "../frontend/dist/index.html"));
+const __dirnamePath = path.resolve();
+// Vite build output is in ../dist (from srcServer folder)
+const frontendDistPath = path.join(__dirnamePath, "../dist");
+
+// Serve static files from the dist folder
+app.use(express.static(frontendDistPath));
+
+// For any non-API route, send back index.html (SPA fallback)
+// Use regex so it does NOT catch /api/* routes.
+app.get(/^\/(?!api).*/, (_req: Request, res: Response) => {
+  res.sendFile(path.join(frontendDistPath, "index.html"));
 });
 
 // Start HTTP/1.1 server
