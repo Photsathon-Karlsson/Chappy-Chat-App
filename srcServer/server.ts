@@ -17,7 +17,6 @@ import registerRouter from "./routes/register.js"; // register route (for new us
 import channelsRouter from "./routes/channels.js"; // channels routes (public + locked lists)
 import { requireAuth } from "./middleware/requireAuth.js"; // JWT middleware (to protect routes)
 import loginRouter from "./routes/login.js"; // login route
-import logoutRouter from "./routes/logout.js"; // logout route (frontend calls this and then clears token)
 import { usersRouter } from "./routes/users.js"; // users routes (list users + delete user)
 import dmsRouter from "./routes/dms.js"; // DM threads routes (require auth)
 import messagesRouter from "./routes/messages.js"; // chat messages routes (GET + POST)
@@ -68,9 +67,6 @@ app.use("/api/channels", channelsRouter);
 
 // Login
 app.use("/api/login", loginRouter);
-
-// Logout (frontend clears token after this)
-app.use("/api/logout", logoutRouter);
 
 // Users
 app.use("/api/users", usersRouter);

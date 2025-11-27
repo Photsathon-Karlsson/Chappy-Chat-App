@@ -67,10 +67,11 @@ body {
   align-items: center;
   justify-content: center;
 }
+
 /* register text warning */
 .input-hint {
   font-size: 0.85rem;
-  color: #CDC1FF; 
+  color: #cdc1ff;
   margin-top: 4px;
 }
 
@@ -203,43 +204,47 @@ body {
 
 .sidebar-list {
   list-style: none;
+  padding: 0;
+  margin: 0;
 }
 
-.sidebar-item-button {
-  width: 100%;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border: none;
-  background: transparent;
-  text-align: left;
-  padding: 0.35rem 0.4rem;
-  border-radius: 10px;
-  font-family: var(--font-body);
-  font-size: 0.98rem;
-  cursor: pointer;
-}
-
-.sidebar-item-button:hover {
-  background-color: rgba(255, 255, 255, 0.4);
-}
-
-.sidebar-item-button.active {
-  background-color: var(--color-accent);
-}
-
-.sidebar-item-left {
-  flex: 1;
-}
-
-.sidebar-item-right {
-  display: flex;
-  align-items: center;
-  gap: 0.3rem;
-}
-
-.sidebar-lock {
+.sidebar-guest-note {
   font-size: 0.9rem;
+  color: rgba(0, 0, 0, 0.7);
+}
+
+/* Channel buttons (pill style) */
+.sidebar-item {
+  width: 100%;
+  border-radius: 999px;
+  border: none; /* no black border */
+  background-color: #ffffff;
+  padding: 0.35rem 0.7rem;
+  margin-bottom: 0.4rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  transition: background-color 0.15s, box-shadow 0.15s;
+  font-size: 0.95rem;
+}
+
+.sidebar-item:hover {
+  background-color: #ffe3f0;
+}
+
+.sidebar-item-active {
+  background-color: #ffbcd9;
+}
+
+.sidebar-item-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.sidebar-item-lock {
+  margin-left: 0.25rem;
 }
 
 .sidebar-empty {
@@ -255,6 +260,42 @@ body {
   background-color: var(--color-accent);
   text-align: center;
   font-size: 0.75rem;
+}
+
+/* DM list: buttons similar to channels */
+.sidebar-dm-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.1rem 0 0;
+}
+
+.sidebar-dm-button {
+  width: 100%;
+  border-radius: 999px;
+  border: none;
+  background-color: #ffffff;
+  padding: 0.35rem 0.7rem;
+  margin-bottom: 0.4rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  font-size: 0.95rem;
+  text-align: left;
+  transition: background-color 0.15s, box-shadow 0.15s;
+}
+
+.sidebar-dm-name {
+  display: inline-block;
+}
+
+.sidebar-dm-button:hover {
+  background-color: #ffe3f0; /* same hover as channel */
+}
+
+.sidebar-dm-button-active {
+  background-color: #ffbcd9; /* same active as channel */
+  font-weight: 600;
 }
 
 /* Right chat area */
@@ -288,6 +329,15 @@ body {
   flex: 1;
   overflow-y: auto;
   padding-right: 0.25rem;
+}
+
+/* states: loading / empty */
+.message-list.loading,
+.message-list.empty {
+  align-items: center;
+  justify-content: center;
+  color: rgba(0, 0, 0, 0.6);
+  font-size: 0.9rem;
 }
 
 .message-item {

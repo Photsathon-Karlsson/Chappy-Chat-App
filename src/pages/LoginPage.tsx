@@ -1,5 +1,4 @@
-// LoginPage - shows login / register / guest buttons
-// Handles forms & talks to parent App.tsx
+// LoginPage handles login / register / guest buttons
 
 import { useState } from "react";
 import LoginForm, { type LoginFormValues } from "../components/LoginForm";
@@ -11,15 +10,14 @@ type LoginPageProps = {
   onGuestLogin: () => void;
 };
 
-export default function LoginPage({
-  onLoginSuccess,
-  onGuestLogin,
-}: LoginPageProps) {
+export default function LoginPage(props: LoginPageProps) {
+  const { onLoginSuccess, onGuestLogin } = props;
+
   const [mode, setMode] = useState<"login" | "register">("login");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // Handle login form submit
+  // Handle login submit
   async function handleLoginSubmit(values: LoginFormValues) {
     try {
       setLoading(true);
@@ -39,7 +37,7 @@ export default function LoginPage({
     }
   }
 
-  // Handle register form submit
+  // Handle register submit
   async function handleRegisterSubmit(values: LoginFormValues) {
     try {
       setLoading(true);
@@ -62,7 +60,6 @@ export default function LoginPage({
 
   return (
     <div className="login-layout">
-      {/* Top tabs */}
       <div className="login-tabs">
         <button
           type="button"
@@ -72,6 +69,7 @@ export default function LoginPage({
         >
           Register
         </button>
+
         <button
           type="button"
           className={`login-tab ${mode === "login" ? "active" : ""}`}
@@ -80,6 +78,7 @@ export default function LoginPage({
         >
           Log in
         </button>
+
         <button
           type="button"
           className="login-tab"
@@ -92,7 +91,6 @@ export default function LoginPage({
 
       {message && <p className="login-message">{message}</p>}
 
-      {/* Correct form for each mode */}
       {mode === "login" ? (
         <LoginForm
           onSubmit={handleLoginSubmit}

@@ -1,245 +1,131 @@
-// Routes for Direct Message (DM).
+// Routes for Direct Message (DM)
 // API routes:
-//   GET /api/dms     -> get DMs for logged-in user
-//   GET /api/dms/all -> get ALL DMs (admin only)
-// DynamoDB DM thread format (two styles):
-//   Type A: PK = "DM", SK = "DM#<userA>#<userB>"
-//   Type B: PK = "DM#<A>#<B>", SK = "META#INFO"
-// Both can store: { members?: string[], lastMessageAt?: string }
+//   GET /api/dms     -> list all users as DM targets (except current user)
+//   GET /api/dms/all -> list all users as DM targets (admin or tool usage)
 
 import express, { type Router, type Request, type Response } from "express";
-import { ScanCommand } from "@aws-sdk/lib-dynamodb";
-import { requireAuth, type JwtPayload } from "../middleware/requireAuth.js"; // middleware that checks if user is logged in
-// Use the same DynamoDB client/table used for users/channels/messages
-import { dbUser, CHANNEL_TABLE as USER_TABLE } from "../data/dynamoUser.js";
+import { requireAuth, type JwtPayload } from "../middleware/requireAuth.js";
+import {
+  listAllUsers,
+  type UserItem,
+} from "../data/dynamoUser.js";
 
 const router: Router = express.Router();
 
-// Type definitions (data shapes)
-
-// One DM record in database
-type DMThread = {
-  id: string; // ex. "DM#alice#bob"
-  members: string[]; // ex. ["naruto", "totoro"]
-  lastMessageAt?: string; // When the last message was sent
-};
-
-// Data format that send to the frontend
+// Data format sent to frontend
+// dmId is a stable id for a DM thread between two users
+// username is the "other" person in the DM
 type DMForClient = {
-  dmId: string; // ex. "DM#alice#bob"
-  username: string; // the "other" person in this DM, from the logged-in user's view
+  dmId: string;
+  username: string;
   lastMessageAt?: string;
-  // extra fields to match common frontend pattern (id + name)
-  id?: string; // same as dmId, for easier mapping
-  name?: string; // same as username, for easier mapping
+  id?: string;   // same as dmId, helps mapping in frontend
+  name?: string; // same as username, helps mapping in frontend
 };
 
-// Helper functions
-
-// Function to get a safe string value
-//   Get a value from object by key -> If it's a string, return it -> If not, return "" (empty string)
-function readStr(obj: Record<string, unknown>, key: string): string {
-  const v = obj[key];
-  return typeof v === "string" ? v : "";
-}
-
-// Function to get a safe string array value
-//   Get a value from object by key -> If it's an array, keep only string items -> If not → return [] (empty array)
-function readStrArray(obj: Record<string, unknown>, key: string): string[] {
-  const v = obj[key];
-  if (Array.isArray(v)) {
-    return v.filter((x): x is string => typeof x === "string");
-  }
-  return [];
-}
-
-// Function to get username from current logged-in user
+// Function: read username from JWT payload
 function getAuthUsername(req: Request): string {
-  // user info is stored on req.user by requireAuth middleware
-  const maybe = (req as unknown as { user?: JwtPayload }).user;
+  const maybe = (req as Request & { user?: JwtPayload }).user;
   const name = maybe?.username;
   return typeof name === "string" ? name : "";
 }
 
-// Function to find DM ID (ex. "DM#alice#bob") from PK, SK, or id field
-function getDmIdFromKeys(
-  obj: Record<string, unknown>,
-  PKv: string,
-  SKv: string
-): string {
-  if (PKv.startsWith("DM#")) return PKv;
-  if (SKv.startsWith("DM#")) return SKv;
-  const id = readStr(obj, "id");
-  if (id.startsWith("DM#")) return id;
-  return "";
+// Function: build stable DM id from two usernames
+// alphabetical (a-z) & lowercased
+// Ex. buildDmId("Naruto", "Guz") -> "DM#guz#naruto"
+function buildDmId(a: string, b: string): string {
+  const p1 = a.toLowerCase();
+  const p2 = b.toLowerCase();
+  const sorted = [p1, p2].sort();
+  return `DM#${sorted[0]}#${sorted[1]}`;
 }
 
-// Function to get member names from "members" array. If missing, try to read from DM ID
-function getMembers(obj: Record<string, unknown>, dmId: string): string[] {
-  const arr = readStrArray(obj, "members");
-  if (arr.length >= 2) return arr;
+// Function: convert user list to DM list for one current user
+function mapUsersToDms(
+  users: UserItem[],
+  me: string
+): DMForClient[] {
+  const meLower = me.toLowerCase();
 
-  // If no members, get names from DM ID (ex. "DM#userA#userB")
-  if (dmId.startsWith("DM#")) {
-    const parts = dmId
-      .split("#")
-      .slice(1)
-      .filter(Boolean);
-    return parts;
+  const dms: DMForClient[] = [];
+
+  for (const u of users) {
+    const name = u.username?.trim();
+    if (!name) continue;
+
+    const lower = name.toLowerCase();
+
+    // Skip current user to avoid DM with self
+    if (lower === meLower) continue;
+
+    const dmId = buildDmId(me, name);
+
+    dms.push({
+      dmId,
+      username: name,
+      id: dmId,
+      name,
+    });
   }
 
-  // If no members[] & no DM#userA#userB -> get names from userA & userB fields
-  const a = readStr(obj, "userA"); // read userA as string (or "")
-  const b = readStr(obj, "userB"); // read userB as string (or "")
-  const out: string[] = []; // make empty array
-  if (a) out.push(a); // add userA if found
-  if (b) out.push(b); // add userB if found
-  return out; // return the list
+  // Sort list by username for nice display
+  dms.sort((a, b) => a.username.localeCompare(b.username));
+
+  return dms;
 }
 
-// Function to scan all DM data from DynamoDB
-async function scanAllDmMetas(): Promise<DMThread[]> {
-  // ScanCommand = read all items in the table
-  const scan = new ScanCommand({
-    TableName: USER_TABLE,
-    ProjectionExpression:
-      "#PK, #SK, #id, members, userA, userB, lastMessageAt, #pk, #sk",
-    ExpressionAttributeNames: {
-      "#PK": "PK",
-      "#SK": "SK",
-      "#pk": "pk",
-      "#sk": "sk",
-      "#id": "id",
-    },
-  });
-
-  // Run the scan & get all rows from DynamoDB
-  const result = await dbUser.send(scan);
-  const rows = (result.Items ?? []) as Array<Record<string, unknown>>;
-
-  // get string from first matching key (PK or pk, SK or sk)
-  const getStrFromKeys = (obj: Record<string, unknown>, ...keys: string[]) =>
-    String(keys.map((k) => obj[k]).find((v) => typeof v === "string") ?? "");
-
-  // Keep only valid DM rows 
-  const dmRows = rows.filter((obj) => {
-    const PKv = getStrFromKeys(obj, "PK", "pk");
-    const SKv = getStrFromKeys(obj, "SK", "sk");
-    const patternA = PKv === "DM" && SKv.startsWith("DM#");
-    const patternB = PKv.startsWith("DM#") && SKv === "META#INFO";
-    return patternA || patternB;
-  });
-
-  // Convert DynamoDB data into DM objects
-  const items: DMThread[] = dmRows.map((obj) => {
-    const PKv = getStrFromKeys(obj, "PK", "pk");
-    const SKv = getStrFromKeys(obj, "SK", "sk");
-    const id = getDmIdFromKeys(obj, PKv, SKv);
-    const members = getMembers(obj, id);
-    const lastMessageAt = readStr(obj, "lastMessageAt") || undefined;
-
-    return { id, members, lastMessageAt };
-  });
-
-  // Sort DMs: newest message first
-  items.sort((a, b) => {
-    if (a.lastMessageAt && b.lastMessageAt) {
-      // Sort newest first (later time first)
-      return b.lastMessageAt.localeCompare(a.lastMessageAt);
-    }
-    return a.id.localeCompare(b.id);
-  });
-
-  return items;
-}
-
-// Function to convert DB data -> frontend format
-function mapToClient(all: DMThread[], me: string): DMForClient[] {
-  return all.map((t) => {
-    // Find the name of the other person in the chat
-    const otherUser =
-      t.members.find((m) => m !== me) ?? (t.members[0] || me);
-
-    return {
-      dmId: t.id,
-      username: otherUser, // field name "username" to match frontend api.ts
-      lastMessageAt: t.lastMessageAt,
-      // duplicate fields for id + name to make frontend mapping easier
-      id: t.id, // same as dmId
-      name: otherUser, // same as username
-    };
-  });
-}
-
-// fallback DM list if Dynamo does not have any DM meta rows
-//   This matches the frontend fallback list.
-function fallbackStaticDms(me: string): DMForClient[] {
-  const allNames = [
-    "Jack-skellington",
-    "totoro",
-    "guz",
-    "naruto",
-    "admin",
-  ];
-
-  // Remove myself from the list if we know who "me" is
-  const names = me ? allNames.filter((name) => name !== me) : allNames;
-
-  return names.map((name) => ({
-    dmId: `DM#me#${name}`, // same pattern as frontend
-    username: name,
-    // fill id + name for safety
-    id: `DM#me#${name}`,  
-    name,  
-  }));
-}
-
-// Routes
-
-// GET /api/dms -> get DMs for the logged-in user
+// GET /api/dms -> list DM targets for current logged-in user
 router.get("/", requireAuth, async (req: Request, res: Response) => {
   try {
-    const me = getAuthUsername(req); // get current user's name
+    const me = getAuthUsername(req);
+
     if (!me) {
       return res
         .status(401)
         .json({ success: false, message: "unauthorized" });
     }
 
-    // Try to read from DynamoDB (might return empty if patterns don't match your data)
-    const all = await scanAllDmMetas(); // get all DM data
-    const mine = all.filter((t) => t.members.includes(me)); // keep only my DMs
+    // Load all users from DynamoDB
+    const users = await listAllUsers();
 
-    // Convert data to frontend format (add "username")
-    let dmsForClient = mapToClient(mine, me);
+    // Convert users to DM entries
+    const dmsForClient = mapUsersToDms(users, me);
 
-    // if DB has no DM meta rows -> use static fallback list
-    if (dmsForClient.length === 0) {
-      dmsForClient = fallbackStaticDms(me);
-    }
-
-    // Send success response with DM list
     return res.json({ success: true, dms: dmsForClient });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "unknown error";
     console.error("[dms] list mine error:", msg);
-    // Send error response if something fails
     return res
       .status(500)
       .json({ success: false, message: "list failed" });
   }
 });
 
-// GET /api/dms/all -> get all DMs (for admin use & still need login / require auth)
+// GET /api/dms/all -> list DM for admin  
+// builds list without filtering out current user.
 router.get("/all", requireAuth, async (_req: Request, res: Response) => {
   try {
-    const all = await scanAllDmMetas(); // read all DM data
-    // Send full DM list (raw format)
-    return res.json({ success: true, dms: all });
+    const users = await listAllUsers();
+
+    const dms: DMForClient[] = users
+      .filter((u) => u.username)
+      .map((u) => {
+        const uname = u.username as string;
+        const dmId = `DM#all#${uname.toLowerCase()}`;
+        return {
+          dmId,
+          username: uname,
+          id: dmId,
+          name: uname,
+        };
+      });
+
+    dms.sort((a, b) => a.username.localeCompare(b.username));
+
+    return res.json({ success: true, dms });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "unknown error";
     console.error("[dms] list all error:", msg);
-    // Send error if something goes wrong
     return res
       .status(500)
       .json({ success: false, message: "list failed" });

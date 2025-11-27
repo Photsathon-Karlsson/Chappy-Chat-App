@@ -1,491 +1,403 @@
-// Message Routes (Channel & DM)
-
-// - GET  /api/messages           -> get messages from channel or DM
-// - POST /api/messages           -> send new message (need login)
-// - POST /api/messages/public    -> guest can send message in #general
-
-// DynamoDB table (2 key styles)
-//   Channel messages:
-//     Pattern A) PK="CHANNEL#<name>", SK="MSG#<time>#<uuid>"
-//     Pattern B) PK="MSG#CHANNEL#<name>", SK="TS#<time>#<uuid>"
-//   DM messages:
-//     Pattern A) PK="DM#<userA>#<userB>", SK="MSG#<time>#<uuid>"
-//     Pattern B) PK="MSG#DM#<userA>#<userB>", SK="TS#<time>#<uuid>"
-
-// Use Pattern A for new data, Pattern B still supported for old records.
-
-import express, { type Router, type Request, type Response } from "express";
-import {
-  QueryCommand,
-  ScanCommand,
-  PutCommand,
-} from "@aws-sdk/lib-dynamodb";
-import { requireAuth } from "../middleware/requireAuth.js";
-import { dbUser, CHANNEL_TABLE as USER_TABLE } from "../data/dynamoUser.js";
+import { Router, type Request, type Response } from "express";
+import { PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { randomUUID } from "crypto";
+import { requireAuth } from "../middleware/requireAuth";
+import { dbUser, USER_TABLE } from "../data/dynamoUser";
 
-const router: Router = express.Router();
+const router = Router();
 
-// make sure JSON body is parsed even if global config changes
-router.use(express.json());
-
-// Types for request/response (Chat message object structure)
+// One chat message shape we use in this file
 type ChatMessage = {
-  id: string; // ex. "MSG#2025-11-03T08:30:00.000Z#uuid"
-  kind: "channel" | "dm"; // message type
-  channel?: string; // only used for channel messages
-  dmId?: string; // only used for dm messages, ex. "DM#photsathon#boooo"
-  author: string; // username (who sent the message)
-  text: string; // message body/content
-  createdAt: string; // ISO time format when message was created
-  // extra fields for frontend convenience
-  sender?: string; // duplicate of author
-  time?: string; // short time "HH:MM"
-};
-
-type MessagesCreateBody = {
-  kind?: string;
-  text?: string;
+  id: string;
+  author: string;
+  text: string;
+  createdAt: string;
   channel?: string;
   dmId?: string;
 };
 
-// Function to safely read a string value from a plain object
-function readStr(obj: Record<string, unknown>, key: string): string {
-  const v = obj[key];
-  return typeof v === "string" ? v : "";
+// Request type with user info from requireAuth middleware
+type AuthedRequest = Request & {
+  user?: {
+    id?: string;
+    username?: string;
+    name?: string;
+  };
+};
+
+// Get current time as ISO string, for example "2025-11-26T13:45:00.000Z"
+function nowIso(): string {
+  return new Date().toISOString();
 }
 
-// Function to check if string is not empty or just spaces
-function isNonEmpty(s: string): boolean {
-  return s.trim().length > 0;
+// Make sure value is string. If not string, return empty string.
+function safeString(value: unknown): string {
+  return typeof value === "string" ? value : "";
 }
 
-// Function to get username from auth info (set by requireAuth middleware)
-function getAuthUsernameFromLocals(res: Response): string {
-  const u = res.locals?.user as { username?: string } | undefined;
-  return typeof u?.username === "string" ? u.username : "";
-}
+/*
+  Create and save one message to DynamoDB.
 
-// Function to read author from multiple possible keys
-function readAuthor(obj: Record<string, unknown>): string {
-  // Try several key names, pick the first non-empty
-  return (
-    readStr(obj, "author") ||
-    readStr(obj, "sender") ||
-    readStr(obj, "username") ||
-    readStr(obj, "user")
-  );
-}
+  If kind = "channel":
+    - Save under PK = "CHANNEL#<channelName>"
 
-// Function to read text from multiple possible keys
-function readMessageText(obj: Record<string, unknown>): string {
-  // Main key is "text", fallback "message"
-  return readStr(obj, "text") || readStr(obj, "message");
-}
+  If kind = "dm":
+    - Save under PK = "DM#<dmId>"   (this dmId is the same as old data style)
 
-// read value from body or query (for safety when body is empty)
-function readFromBody(req: Request, key: string): string {
-  const body = req.body as MessagesCreateBody | undefined;
-  const v = body?.[key as keyof MessagesCreateBody];
-  return typeof v === "string" ? v : "";
-}
+  After saving, return a ChatMessage object.
+*/
+async function createMessage(
+  params:
+    | {
+        kind: "channel";
+        author: string;
+        channel: string;
+        text: string;
+      }
+    | {
+        kind: "dm";
+        author: string;
+        dmId: string;
+        text: string;
+      }
+): Promise<ChatMessage> {
+  const createdAt = nowIso();
+  const sk = `MSG#${createdAt}#${randomUUID()}`;
 
-function readFromQuery(req: Request, key: string): string {
-  const q = (req.query as Record<string, unknown>)[key];
-  return typeof q === "string" ? q : "";
-}
+  // Create channel message
+  if (params.kind === "channel") {
+    const channelName = params.channel;
 
-function readBodyOrQuery(req: Request, key: string): string {
-  const fromBody = readFromBody(req, key);
-  if (isNonEmpty(fromBody)) return fromBody;
-  return readFromQuery(req, key);
-}
+    const item = {
+      PK: `CHANNEL#${channelName}`,
+      SK: sk,
+      id: sk,
+      kind: "channel",
+      channel: channelName,
+      author: params.author,
+      text: params.text,
+      createdAt,
+    };
 
-// Convert a DynamoDB item to ChatMessage (works for both patterns)
-function mapItemToMessage(obj: Record<string, unknown>): ChatMessage | null {
-  const PK = readStr(obj, "PK") || readStr(obj, "pk");
-  const SK = readStr(obj, "SK") || readStr(obj, "sk");
-  const text = readMessageText(obj);
-  const author = readAuthor(obj);
-  let createdAt = readStr(obj, "createdAt");
-  let id = readStr(obj, "id");
+    await dbUser.send(
+      new PutCommand({
+        TableName: USER_TABLE,
+        Item: item,
+      })
+    );
 
-  // Get ISO timestamp from SK key (ex. "MSG#<iso>#<uuid>" or "TS#<iso>#<uuid>")
-  const parseFromKey = (s: string): string => {
-    const parts = s.split("#");
-    if (parts.length >= 2) {
-      const iso = parts[1]; // part[1] should be ISO time
-      if (iso && iso.includes("T")) return iso;
-    }
-    return "";
+    return {
+      id: item.id,
+      author: item.author,
+      text: item.text,
+      createdAt: item.createdAt,
+      channel: item.channel,
+    };
+  }
+
+  // Create DM message
+  const rawDmId = params.dmId;
+
+  // If dmId already starts with "DM#", keep it.
+  // If not, add "DM#" in front so it matches old data.
+  const conversationId = rawDmId.startsWith("DM#")
+    ? rawDmId
+    : `DM#${rawDmId}`;
+
+  const item = {
+    PK: conversationId,
+    SK: sk,
+    id: sk,
+    kind: "dm",
+    dmId: conversationId,
+    author: params.author,
+    text: params.text,
+    createdAt,
   };
 
-  // If createdAt or id missing, try to get from SK
-  if (!createdAt && SK) {
-    createdAt = parseFromKey(SK);
-  }
-  if (!id) {
-    id = SK || "";
-  }
+  await dbUser.send(
+    new PutCommand({
+      TableName: USER_TABLE,
+      Item: item,
+    })
+  );
 
-  // Check message type (channel or DM) from PK
-  let kind: "channel" | "dm" | null = null;
-  let channel: string | undefined;
-  let dmId: string | undefined;
+  return {
+    id: item.id,
+    author: item.author,
+    text: item.text,
+    createdAt: item.createdAt,
+    dmId: item.dmId,
+  };
+}
 
-  // Pattern A
-  if (PK.startsWith("CHANNEL#")) {
-    kind = "channel";
-    channel = PK.slice("CHANNEL#".length);
-  } else if (PK.startsWith("DM#")) {
-    kind = "dm";
-    dmId = PK;
-  } else {
-    // Pattern B
-    if (PK.startsWith("MSG#CHANNEL#")) {
-      kind = "channel";
-      channel = PK.slice("MSG#CHANNEL#".length);
-    } else if (PK.startsWith("MSG#DM#")) {
-      kind = "dm";
-      dmId = "DM#" + PK.slice("MSG#DM#".length);
-    }
-  }
+/*
+  Convert raw DynamoDB item to ChatMessage.
 
-  // Skip invalid or empty data
-  if (!kind || !isNonEmpty(text) || !isNonEmpty(author) || !isNonEmpty(createdAt)) {
-    return null;
-  }
+  This function makes sure all important fields are strings
+  and fills some safe default values if something is missing.
+*/
+function mapItemToMessage(item: Record<string, unknown>): ChatMessage {
+  const id =
+    safeString(item.id) ||
+    safeString(item.SK) ||
+    `msg-${randomUUID()}`;
 
-  // create short time "HH:MM" for frontend
-  let timeShort: string | undefined;
-  if (createdAt.includes("T")) {
-    const hhmm = createdAt.split("T")[1]?.slice(0, 5);
-    if (hhmm) timeShort = hhmm;
-  }
+  const author = safeString(item.author) || "unknown";
+  const text = safeString(item.text);
+  const createdAt =
+    safeString(item.createdAt) || safeString(item.time) || nowIso();
+  const channel = safeString(item.channel) || undefined;
+  const dmId = safeString(item.dmId) || undefined;
 
-  // Return a clean ChatMessage object
   return {
     id,
-    kind,
-    channel,
-    dmId,
     author,
     text,
     createdAt,
-    sender: author,
-    time: timeShort,
+    channel,
+    dmId,
   };
 }
 
-// Build primary key (PK) for saving new messages (Pattern A)
-function buildPk(
-  kind: "channel" | "dm",
-  channel?: string,
-  dmId?: string
-): string {
-  if (kind === "channel" && channel) return `CHANNEL#${channel}`;
-  if (kind === "dm" && dmId) return dmId;
-  return "";
-}
+/*
+  GET /api/messages
 
-// Fetch messages from DynamoDB (try Pattern A first, then Pattern B)
-async function fetchMessages(
-  kind: "channel" | "dm",
-  key: string,
-  limit: number
-): Promise<ChatMessage[]> {
-  // Pattern A: query by PK with SK starting with "MSG#"
-  const query = new QueryCommand({
-    TableName: USER_TABLE,
-    KeyConditionExpression: "#PK = :pk AND begins_with(#SK, :skpref)",
-    ExpressionAttributeNames: { "#PK": "PK", "#SK": "SK" },
-    ExpressionAttributeValues: { ":pk": key, ":skpref": "MSG#" },
-    ScanIndexForward: true, // sort oldest -> newest
-    Limit: limit,
-  });
+  Query options:
+    kind=channel&channel=<name>   → load messages for one channel
+    kind=dm&dmId=<id>             → load messages for one DM conversation
 
-  const qres = await dbUser.send(query);
-  const qItems = (qres.Items ?? []) as Array<Record<string, unknown>>;
-  let msgs = qItems
-    .map(mapItemToMessage)
-    .filter((x): x is ChatMessage => !!x);
+  For channels:
+    1) Try new pattern PK = "CHANNEL#<name>"
+    2) If no items, try old pattern PK = "MSG#CHANNEL#<name>"
 
-  if (msgs.length > 0) {
-    return msgs;
-  }
-
-  // If Pattern A not found, try Pattern B by scanning all records
-  const scan = new ScanCommand({
-    TableName: USER_TABLE,
-    // Use #name for words that DynamoDB already uses (like "text" or "id")
-    ProjectionExpression:
-      "#PK, #SK, #text, #author, #createdAt, #id, #pk, #sk",
-    ExpressionAttributeNames: {
-      "#PK": "PK",
-      "#SK": "SK",
-      "#pk": "pk",
-      "#sk": "sk",
-      "#text": "text",
-      "#author": "author",
-      "#createdAt": "createdAt",
-      "#id": "id",
-    },
-  });
-
-  const sres = await dbUser.send(scan);
-  const rows = (sres.Items ?? []) as Array<Record<string, unknown>>;
-
-  // Build the expected Pattern B PK based on kind + key
-  let expectedPkB = "";
-  if (kind === "channel") {
-    // key comes as "CHANNEL#<name>" (Pattern A) -> Pattern B uses "MSG#CHANNEL#<name>"
-    const chName = key.slice("CHANNEL#".length);
-    expectedPkB = `MSG#CHANNEL#${chName}`;
-  } else {
-    // kind === "dm"; key is "DM#A#B" (Pattern A) -> Pattern B uses "MSG#DM#A#B"
-    expectedPkB = `MSG#${key}`; // prepend MSG#
-  }
-
-  // Filter only messages that match our kind & key
-  const filtered = rows.filter((obj) => {
-    const PKb = readStr(obj, "PK") || readStr(obj, "pk");
-    return PKb === expectedPkB;
-  });
-
-  msgs = filtered
-    .map(mapItemToMessage)
-    .filter((x): x is ChatMessage => !!x);
-
-  // Sort messages by createdAt (ascending)
-  msgs.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-  return msgs.slice(0, limit);
-}
-
-// Create & save a new message (Pattern A write)
-async function createMessage(params: {
-  kind: "channel" | "dm";
-  channel?: string;
-  dmId?: string;
-  author: string;
-  text: string;
-}): Promise<ChatMessage> {
-  const now = new Date().toISOString();
-  const uuid = randomUUID();
-
-  // Create PK & SK
-  const pk = buildPk(params.kind, params.channel, params.dmId);
-  const sk = `MSG#${now}#${uuid}`;
-
-  // Prepare message data to store in DynamoDB
-  const item: Record<string, unknown> = {
-    PK: pk,
-    SK: sk,
-    kind: params.kind,
-    channel: params.kind === "channel" ? params.channel : undefined,
-    dmId: params.kind === "dm" ? params.dmId : undefined,
-    author: params.author,
-    text: params.text,
-    createdAt: now,
-    id: sk,
-  };
-
-  // Add new item to table (skip if same PK + SK already exist)
-  const put = new PutCommand({
-    TableName: USER_TABLE,
-    Item: item,
-    ConditionExpression:
-      "attribute_not_exists(#PK) AND attribute_not_exists(#SK)",
-    ExpressionAttributeNames: { "#PK": "PK", "#SK": "SK" },
-  });
-
-  await dbUser.send(put);
-
-  // create short time once here
-  let timeShort: string | undefined;
-  if (now.includes("T")) {
-    const hhmm = now.split("T")[1]?.slice(0, 5);
-    if (hhmm) timeShort = hhmm;
-  }
-
-  // Return the saved message
-  return {
-    id: sk,
-    kind: params.kind,
-    channel: params.channel,
-    dmId: params.dmId,
-    author: params.author,
-    text: params.text,
-    createdAt: now,
-    sender: params.author,
-    time: timeShort,
-  };
-}
-
-// ROUTES START HERE
-
-// GET /api/messages   -> list messages by channel or dm
+  For DMs:
+    - Always use PK = "DM#<dmId>"  (same as old data)
+*/
 router.get("/", async (req: Request, res: Response) => {
   try {
-    const kind = String(req.query.kind || "").toLowerCase();
-    const limit = Math.max(
-      1,
-      Math.min(200, Number(req.query.limit) || 50)
-    ); // limit 1–200
+    const kindRaw = safeString(req.query.kind);
+    const kind = kindRaw === "dm" ? "dm" : "channel";
 
-    // If kind = channel -> need ?channel=<name>
+    // Load messages for one channel
     if (kind === "channel") {
-      const channel = String(req.query.channel || "");
-      if (!isNonEmpty(channel)) {
-        return res
-          .status(400)
-          .json({ success: false, message: "channel is required" });
+      const channelName = safeString(req.query.channel).trim();
+
+      if (!channelName) {
+        res.status(400).json({ message: "channel is required" });
+        return;
       }
-      const pk = `CHANNEL#${channel}`;
-      const messages = await fetchMessages("channel", pk, limit);
-      return res.json({ success: true, messages });
+
+      // First: try new PK style "CHANNEL#<name>"
+      const primaryParams = {
+        TableName: USER_TABLE,
+        KeyConditionExpression: "#pk = :pk",
+        ExpressionAttributeNames: {
+          "#pk": "PK",
+        },
+        ExpressionAttributeValues: {
+          ":pk": `CHANNEL#${channelName}`,
+        },
+        ScanIndexForward: true,
+      };
+
+      const primaryResult = await dbUser.send(
+        new QueryCommand(primaryParams)
+      );
+
+      let items = primaryResult.Items ?? [];
+
+      // If nothing found, try old PK style "MSG#CHANNEL#<name>"
+      if (items.length === 0) {
+        const legacyParams = {
+          TableName: USER_TABLE,
+          KeyConditionExpression: "#pk = :pk",
+          ExpressionAttributeNames: {
+            "#pk": "PK",
+          },
+          ExpressionAttributeValues: {
+            ":pk": `MSG#CHANNEL#${channelName}`,
+          },
+          ScanIndexForward: true,
+        };
+
+        const legacyResult = await dbUser.send(
+          new QueryCommand(legacyParams)
+        );
+        items = legacyResult.Items ?? [];
+      }
+
+      const messages = items.map((item) =>
+        mapItemToMessage(item as Record<string, unknown>)
+      );
+
+      res.json(messages);
+      return;
     }
 
-    // If kind = dm -> need ?dmId=DM#...
-    if (kind === "dm") {
-      const dmId = String(req.query.dmId || "");
-      // Check dmId is not empty & starts with "DM#"
-      if (!isNonEmpty(dmId) || !dmId.startsWith("DM#")) {
-        return res.status(400).json({
-          success: false,
-          message: "dmId must start with DM#",
-        });
-      }
-      // Get DM messages
-      const messages = await fetchMessages("dm", dmId, limit);
-      return res.json({ success: true, messages });
+    // Load messages for one DM conversation
+    const dmIdRaw = safeString(req.query.dmId).trim();
+
+    if (!dmIdRaw) {
+      res.status(400).json({ message: "dmId is required for dm kind" });
+      return;
     }
 
-    // Invalid kind (If kind is wrong)
-    return res.status(400).json({
-      success: false,
-      message: "kind must be 'channel' or 'dm'",
-    });
+    const conversationId = dmIdRaw.startsWith("DM#")
+      ? dmIdRaw
+      : `DM#${dmIdRaw}`;
+
+    const params = {
+      TableName: USER_TABLE,
+      KeyConditionExpression: "#pk = :pk",
+      ExpressionAttributeNames: {
+        "#pk": "PK",
+      },
+      ExpressionAttributeValues: {
+        ":pk": conversationId,
+      },
+      ScanIndexForward: true,
+    };
+
+    const result = await dbUser.send(new QueryCommand(params));
+    const items = result.Items ?? [];
+
+    const messages = items.map((item) =>
+      mapItemToMessage(item as Record<string, unknown>)
+    );
+
+    res.json(messages);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "unknown error";
-    console.error("[messages] list error:", msg);
-    return res
-      .status(500)
-      .json({ success: false, message: "list failed" });
+    console.error("GET /api/messages error:", err);
+    res.status(500).json({ message: "Failed to load messages" });
   }
 });
 
-// POST /api/messages/public  -> guest can send in #general without login
-router.post("/public", async (req: Request, res: Response) => {
-  try {
-    const kind = readFromBody(req, "kind").toLowerCase();
-    const text = readFromBody(req, "text");
-    const channel = readFromBody(req, "channel");
+/*
+  POST /api/messages/public
 
-    // Only allow channel messages to #general
-    if (kind !== "channel" || channel !== "general") {
-      return res
-        .status(400)
-        .json({ success: false, message: "only general channel is public" });
+  This is for guest user (not logged in).
+  Guest can only send messages in channel "general".
+
+  Body JSON:
+    {
+      "channel": "general",
+      "text": "hello"
     }
+*/
+router.post(
+  "/public",
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const channelName = safeString(req.body.channel).trim();
+      const text = safeString(req.body.text).trim();
 
-    if (!isNonEmpty(text)) {
-      return res
-        .status(400)
-        .json({ success: false, message: "text is required" });
-    }
-
-    // Guest does not have real account, use fixed name
-    const author = "Guest";
-
-    const saved = await createMessage({
-      kind: "channel",
-      channel,
-      author,
-      text,
-    });
-
-    return res.status(201).json({ success: true, message: saved });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : "unknown error";
-    console.error("[messages] public create error:", msg);
-    return res
-      .status(500)
-      .json({ success: false, message: "create failed" });
-  }
-});
-
-// POST /api/messages  -> create a new message (require auth)
-router.post("/", requireAuth, async (req: Request, res: Response) => {
-  try {
-    // debug log (see raw body / query when debugging)
-    console.log("[messages] create body:", req.body);
-    console.log("[messages] create query:", req.query);
-
-    // Get logged-in username (requireAuth puts user object on res.locals.user)
-    const me = getAuthUsernameFromLocals(res);
-    if (!isNonEmpty(me)) {
-      return res
-        .status(401)
-        .json({ success: false, message: "unauthorized" });
-    }
-
-    const kindRaw = readBodyOrQuery(req, "kind").toLowerCase();
-    const text = readBodyOrQuery(req, "text");
-
-    if (!isNonEmpty(text)) {
-      return res
-        .status(400)
-        .json({ success: false, message: "text is required" });
-    }
-
-    // Channel message
-    if (kindRaw === "channel") {
-      const channel = readBodyOrQuery(req, "channel");
-      if (!isNonEmpty(channel)) {
-        return res
-          .status(400)
-          .json({ success: false, message: "channel is required" });
+      if (!channelName || !text) {
+        res.status(400).json({ message: "channel and text are required" });
+        return;
       }
-      const saved = await createMessage({
+
+      if (channelName.toLowerCase() !== "general") {
+        res
+          .status(403)
+          .json({ message: "Guests can only send messages in #general" });
+        return;
+      }
+
+      const message = await createMessage({
         kind: "channel",
-        channel,
-        author: me,
+        author: "Guest",
+        channel: channelName,
         text,
       });
-      return res.status(201).json({ success: true, message: saved });
-    }
 
-    // DM message
-    if (kindRaw === "dm") {
-      const dmId = readBodyOrQuery(req, "dmId");
-      if (!isNonEmpty(dmId) || !dmId.startsWith("DM#")) {
-        return res.status(400).json({
-          success: false,
-          message: "dmId must start with DM#",
-        });
-      }
-      const saved = await createMessage({
-        kind: "dm",
-        dmId,
-        author: me,
-        text,
-      });
-      return res.status(201).json({ success: true, message: saved });
+      res.status(201).json(message);
+    } catch (err) {
+      console.error("POST /api/messages/public error:", err);
+      res.status(500).json({ message: "Failed to send public message" });
     }
-
-    // Invalid kind (If kind is wrong)
-    return res.status(400).json({
-      success: false,
-      message: "kind must be 'channel' or 'dm'",
-    });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : "unknown error";
-    console.error("[messages] create error:", msg);
-    return res
-      .status(500)
-      .json({ success: false, message: "create failed" });
   }
-});
+);
+
+/*
+  POST /api/messages
+
+  This is for logged-in users only (middleware requireAuth).
+
+  For channel message:
+    Body:
+      {
+        "kind": "channel",
+        "channel": "general",
+        "text": "hello"
+      }
+
+  For DM message:
+    Body:
+      {
+        "kind": "dm",
+        "dmId": "DM#admin#koi"   or "admin#koi" etc,
+        "text": "hi"
+      }
+*/
+router.post(
+  "/",
+  requireAuth,
+  async (req: AuthedRequest, res: Response): Promise<void> => {
+    try {
+      const kindRaw = safeString(req.body.kind);
+      const kind = kindRaw === "dm" ? "dm" : "channel";
+
+      const text = safeString(req.body.text).trim();
+      if (!text) {
+        res.status(400).json({ message: "text is required" });
+        return;
+      }
+
+      const author =
+        req.user?.username || req.user?.name || "unknown-user";
+
+      // Send message in channel
+      if (kind === "channel") {
+        const channelName = safeString(req.body.channel).trim();
+
+        if (!channelName) {
+          res.status(400).json({ message: "channel is required" });
+          return;
+        }
+
+        const message = await createMessage({
+          kind: "channel",
+          author,
+          channel: channelName,
+          text,
+        });
+
+        res.status(201).json(message);
+        return;
+      }
+
+      // Send message in DM
+      const dmId = safeString(req.body.dmId).trim();
+
+      if (!dmId) {
+        res.status(400).json({ message: "dmId is required for dm message" });
+        return;
+      }
+
+      const message = await createMessage({
+        kind: "dm",
+        author,
+        dmId,
+        text,
+      });
+
+      res.status(201).json(message);
+    } catch (err) {
+      console.error("POST /api/messages error:", err);
+      res.status(500).json({ message: "Failed to send message" });
+    }
+  }
+);
 
 export default router;

@@ -1,31 +1,39 @@
-// functions for saving JWT token in localStorage
+// file for saving, loading login state, & keeps login info in localStorage
+// The app can read it again after refresh
 
-const KEY = "jwt"; // Key name used to store the token
+export type StoredAuth = {
+  username: string;
+  token?: string;
+  isGuest: boolean;
+};
 
-// Save the token in localStorage
-export function saveToken(token: string) {
-  try {
-    localStorage.setItem(KEY, token);
-  } catch {
-    // If saving fails (like in private mode), just ignore
+// Load saved login info
+// Returns the data or null if nothing saved
+export function loadAuthState(): StoredAuth | null {
+  const raw = localStorage.getItem("authState");
+  if (!raw) {
+    return null;
   }
-}
 
-// Get the token from localStorage
-export function getToken(): string | null {
   try {
-    return localStorage.getItem(KEY);
+    const parsed = JSON.parse(raw);
+    return {
+      username: parsed.username || "",
+      token: parsed.token,
+      isGuest: parsed.isGuest || false,
+    };
   } catch {
-    // If reading fails, return null
     return null;
   }
 }
 
-// Delete the token from localStorage
-export function clearToken() {
-  try {
-    localStorage.removeItem(KEY);
-  } catch {
-    // If removing fails, just ignore
-  }
+// Save login info
+export function saveAuthState(state: StoredAuth) {
+  const raw = JSON.stringify(state);
+  localStorage.setItem("authState", raw);
+}
+
+// Clear saved login info
+export function clearAuthState() {
+  localStorage.removeItem("authState");
 }

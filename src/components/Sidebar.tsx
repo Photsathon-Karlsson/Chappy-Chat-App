@@ -1,6 +1,4 @@
-// Sidebar - shows Channels & DMs on the left
-
-import { useMemo } from "react";
+// List of channels and DMs
 
 type Scope = "channel" | "dm";
 
@@ -8,121 +6,81 @@ export type SidebarItem = {
   id: string;
   name: string;
   unread?: number;
-  locked?: boolean; // true for private channels
+  locked?: boolean;
 };
 
 type SidebarProps = {
   channels: SidebarItem[];
   dms: SidebarItem[];
+  active?: {
+    scope: Scope;
+    id: string;
+  };
+  isGuest: boolean;
   onSelect: (scope: Scope, id: string) => void;
-  active?: { scope: Scope; id: string };
-  isGuest: boolean; // can show locks only for guests
 };
 
 export default function Sidebar(props: SidebarProps) {
-  const { channels, dms, onSelect, active, isGuest } = props;
+  const { channels, dms, active, isGuest, onSelect } = props;
 
-  // Build "channel:123" or "dm:abc" for easy comparison
-  const activeKey = useMemo(
-    () => (active ? `${active.scope}:${active.id}` : ""),
-    [active]
-  );
+  // Check active item in sidebar
+  function isActive(scope: Scope, id: string): boolean {
+    if (!active) return false;
+    return active.scope === scope && active.id === id;
+  }
 
   return (
     <aside className="sidebar">
-      <Section
-        title="Channels"
-        items={channels}
-        scope="channel"
-        onSelect={onSelect}
-        activeKey={activeKey}
-        isGuest={isGuest}
-      />
-      <Section
-        title="DM"
-        items={dms}
-        scope="dm"
-        onSelect={onSelect}
-        activeKey={activeKey}
-        isGuest={isGuest}
-      />
-    </aside>
-  );
-}
+      <div className="sidebar-section">
+        <h3 className="sidebar-title">Channels</h3>
 
-type SectionProps = {
-  title: string;
-  items: SidebarItem[];
-  scope: Scope;
-  onSelect: (scope: Scope, id: string) => void;
-  activeKey: string;
-  isGuest: boolean;
-};
-
-function Section({
-  title,
-  items,
-  scope,
-  onSelect,
-  activeKey,
-  isGuest,
-}: SectionProps) {
-  const showDmGuestMessage = scope === "dm" && isGuest && items.length === 0;
-
-  return (
-    <div className="sidebar-section">
-      <h2 className="sidebar-title">{title}</h2>
-      <ul className="sidebar-list">
-        {items.map((it) => {
-          const key = `${scope}:${it.id}`;
-          const isActive = key === activeKey;
-
-          const baseLabel =
-            scope === "channel" ? `# ${it.name}` : it.name;
-
-          // Guests see 🔒 next to locked channels
-          const showLockForGuestChannel =
-            isGuest && scope === "channel" && it.locked;
-
-          return (
-            <li key={key}>
+        <ul className="sidebar-list">
+          {channels.map((ch) => (
+            <li key={ch.id}>
               <button
                 type="button"
-                className={`sidebar-item-button ${
-                  isActive ? "active" : ""
-                }`}
-                onClick={() => onSelect(scope, it.id)}
+                className={
+                  "sidebar-item" +
+                  (isActive("channel", ch.name) ? " sidebar-item-active" : "")
+                }
+                onClick={() => onSelect("channel", ch.name)}
               >
-                <span className="sidebar-item-left">
-                  {baseLabel}
-                  {showLockForGuestChannel ? " 🔒" : ""}
-                </span>
-
-                <span className="sidebar-item-right">
-                  {/* Only show unread badge on the right side */}
-                  {it.unread && it.unread > 0 && (
-                    <span className="badge">{it.unread}</span>
-                  )}
-                </span>
+                <span className="sidebar-item-name"># {ch.name}</span>
+                {ch.locked && (
+                  <span className="sidebar-item-lock" aria-hidden="true">
+                    🔒
+                  </span>
+                )}
               </button>
             </li>
-          );
-        })}
+          ))}
+        </ul>
+      </div>
 
-        {/* If no items -> show helper text */}
-        {items.length === 0 && (
-          <li className="sidebar-empty">
-            {showDmGuestMessage ? (
-              <>
-                <span aria-hidden="true">🔒</span>{" "}
-                <span>Log in to use DMs</span>
-              </>
-            ) : (
-              "(empty)"
-            )}
-          </li>
+      <div className="sidebar-section">
+        <h3 className="sidebar-title">DM</h3>
+
+        {isGuest ? (
+          <p className="sidebar-guest-note">Log in to use DMs</p>
+        ) : (
+          <ul className="sidebar-list sidebar-dm-list">
+            {dms.map((dm) => (
+              <li key={dm.id}>
+                <button
+                  type="button"
+                  className={
+                    "sidebar-dm-button" +
+                    (isActive("dm", dm.id) ? " sidebar-dm-button-active" : "")
+                  }
+                  onClick={() => onSelect("dm", dm.id)}
+                >
+                  <span className="sidebar-dm-name">{dm.name}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
         )}
-      </ul>
-    </div>
+      </div>
+    </aside>
   );
 }
