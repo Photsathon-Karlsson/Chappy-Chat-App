@@ -178,6 +178,8 @@ body {
 .chat-layout {
   display: flex;
   min-height: 380px;
+  max-height: 480px; /* keep chat area in a box so messages scroll inside */
+  width: 100%;
 }
 
 /* Left sidebar */
@@ -217,7 +219,7 @@ body {
 .sidebar-item {
   width: 100%;
   border-radius: 999px;
-  border: none; /* no black border */
+  border: none;
   background-color: #ffffff;
   padding: 0.35rem 0.7rem;
   margin-bottom: 0.4rem;
@@ -262,27 +264,27 @@ body {
   font-size: 0.75rem;
 }
 
-/* DM list: buttons similar to channels */
+/* DM list: fixed-height area with its own scroll */
 .sidebar-dm-list {
   list-style: none;
   padding: 0;
-  margin: 0.1rem 0 0;
+  margin: 0.4rem 0 0;
+  max-height: 220px;
+  overflow-y: auto;
+  padding-right: 0.25rem;
 }
 
+/* DM buttons (pill style like channels) */
 .sidebar-dm-button {
   width: 100%;
   border-radius: 999px;
   border: none;
-  background-color: #ffffff;
-  padding: 0.35rem 0.7rem;
-  margin-bottom: 0.4rem;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  font-size: 0.95rem;
+  background-color: transparent;
   text-align: left;
-  transition: background-color 0.15s, box-shadow 0.15s;
+  padding: 0.3rem 0.7rem;
+  cursor: pointer;
+  font-size: 0.95rem;
+  transition: background-color 0.15s;
 }
 
 .sidebar-dm-name {
@@ -290,11 +292,11 @@ body {
 }
 
 .sidebar-dm-button:hover {
-  background-color: #ffe3f0; /* same hover as channel */
+  background-color: #ffe3f0;
 }
 
 .sidebar-dm-button-active {
-  background-color: #ffbcd9; /* same active as channel */
+  background-color: #ffbcd9;
   font-weight: 600;
 }
 
@@ -320,7 +322,7 @@ body {
   font-size: 0.9rem;
 }
 
-/* Message list area */
+/* Message list area (inside scroll box) */
 .message-list {
   list-style: none;
   display: flex;
@@ -379,20 +381,23 @@ body {
   border-top: 1px solid var(--color-secondary1);
 }
 
-/* Scrollbars for sidebar and message area */
+/* Scrollbars for sidebar, DM list and message area */
 .sidebar,
-.message-list {
+.message-list,
+.sidebar-dm-list {
   scrollbar-width: thin;
   scrollbar-color: var(--color-secondary1) var(--color-primary);
 }
 
 .sidebar::-webkit-scrollbar,
-.message-list::-webkit-scrollbar {
+.message-list::-webkit-scrollbar,
+.sidebar-dm-list::-webkit-scrollbar {
   width: 6px;
 }
 
 .sidebar::-webkit-scrollbar-thumb,
-.message-list::-webkit-scrollbar-thumb {
+.message-list::-webkit-scrollbar-thumb,
+.sidebar-dm-list::-webkit-scrollbar-thumb {
   background: var(--color-secondary1);
   border-radius: 8px;
 }
@@ -420,6 +425,7 @@ body {
 
   .chat-layout {
     flex-direction: column;
+    max-height: none;
   }
 
   .sidebar {
