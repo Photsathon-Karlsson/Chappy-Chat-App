@@ -52,49 +52,31 @@ const App: React.FC = () => {
 
   return (
     <Routes>
+      {/* Login / Register / Guest page */}
       <Route
         path="/"
         element={
-          <LoginPage
-            onLoginSuccess={handleLoginSuccess}
-            onGuestLogin={handleGuestLogin}
-          />
+          <div className="app-shell">
+            <h1 className="app-title">Chappy</h1>
+
+            <div className="screen-card">
+              <LoginPage
+                onLoginSuccess={handleLoginSuccess}
+                onGuestLogin={handleGuestLogin}
+              />
+            </div>
+          </div>
         }
       />
 
+      {/* Chat page */}
       <Route
         path="/chat"
         element={
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              paddingTop: "40px",
-            }}
-          >
-            {/* Page title */}
-            <h1
-              style={{
-                fontWeight: 700,
-                fontSize: "32px",
-                marginBottom: "30px",
-              }}
-            >
-              Chappy
-            </h1>
+          <div className="app-shell">
+            <h1 className="app-title">Chappy</h1>
 
-            {/* Main card container */}
-            <div
-              style={{
-                backgroundColor: "#fff4e0",
-                width: "900px",
-                minHeight: "600px",
-                borderRadius: "20px",
-                padding: "30px",
-                boxShadow: "0 10px 25px rgba(0,0,0,0.1)",
-              }}
-            >
+            <div className="screen-card">
               <ChatApp
                 username={username}
                 token={token}
@@ -106,6 +88,7 @@ const App: React.FC = () => {
         }
       />
 
+      {/* Fallback route */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
