@@ -1,6 +1,9 @@
 // All calls to backend API for channels, users, messages and auth
 
-const BASE_URL = "http://127.0.0.1:1338/api";
+// Base URL for all API calls
+// In development, this value is usually empty and "/api" is used
+// In production, VITE_API_BASE_URL should be set on the hosting platform
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api";
 
 export type ChannelDTO = {
   id: string;
@@ -40,7 +43,16 @@ export type RegisterResponse = {
   message?: string;
 };
 
-// helper to parse JSON safely
+// Helper to build full URL for API endpoints
+function buildUrl(path: string): string {
+  // Ensure there is no double slash except after "https://"
+  if (API_BASE_URL.endsWith("/")) {
+    return `${API_BASE_URL}${path.replace(/^\/+/, "")}`;
+  }
+  return `${API_BASE_URL}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
+// Helper to parse JSON safely
 async function readJson<T>(res: Response): Promise<T> {
   const text = await res.text();
   if (!text) return {} as T;
@@ -52,7 +64,7 @@ async function readJson<T>(res: Response): Promise<T> {
   }
 }
 
-// helper type for list responses
+// Helper type for list responses
 type ListResult<TItem> =
   | TItem[]
   | {
@@ -62,9 +74,9 @@ type ListResult<TItem> =
       messages?: TItem[];
     };
 
-// Load channel list from /api/channels
+// Load channel list from /channels
 export async function fetchChannels(): Promise<ChannelDTO[]> {
-  const res = await fetch(`${BASE_URL}/channels`);
+  const res = await fetch(buildUrl("/channels"));
   if (!res.ok) {
     throw new Error("Failed to load channels");
   }
@@ -87,7 +99,8 @@ export async function fetchChannels(): Promise<ChannelDTO[]> {
   }
 
   const channels: ChannelDTO[] = list.map((raw, index) => {
-    const name = typeof raw.name === "string" ? raw.name : raw.id ?? `channel-${index}`;
+    const name =
+      typeof raw.name === "string" ? raw.name : raw.id ?? `channel-${index}`;
     const id = typeof raw.id === "string" ? raw.id : name;
     const locked =
       typeof raw.locked === "boolean"
@@ -103,9 +116,9 @@ export async function fetchChannels(): Promise<ChannelDTO[]> {
   return channels;
 }
 
-// Load user list for DM from /api/users
+// Load user list for DM from /users
 export async function fetchUsers(token: string): Promise<UserDTO[]> {
-  const res = await fetch(`${BASE_URL}/users`, {
+  const res = await fetch(buildUrl("/users"), {
     headers: {
       Authorization: `Bearer ${token}`,
     },
@@ -152,7 +165,7 @@ export async function fetchUsers(token: string): Promise<UserDTO[]> {
   return users;
 }
 
-// Load messages for a channel or a dm from /api/messages
+// Load messages for a channel or a dm from /messages
 export async function fetchMessages(
   kind: "channel" | "dm",
   id: string
@@ -160,9 +173,11 @@ export async function fetchMessages(
   let url: string;
 
   if (kind === "channel") {
-    url = `${BASE_URL}/messages?kind=channel&channel=${encodeURIComponent(id)}`;
+    url = buildUrl(
+      `/messages?kind=channel&channel=${encodeURIComponent(id)}`
+    );
   } else {
-    url = `${BASE_URL}/messages?kind=dm&dmId=${encodeURIComponent(id)}`;
+    url = buildUrl(`/messages?kind=dm&dmId=${encodeURIComponent(id)}`);
   }
 
   const res = await fetch(url);
@@ -193,8 +208,7 @@ export async function fetchMessages(
   }
 
   const messages: MessageDTO[] = list.map((raw, index) => {
-    const idValue =
-      typeof raw.id === "string" ? raw.id : `msg-${index}`;
+    const idValue = typeof raw.id === "string" ? raw.id : `msg-${index}`;
     const textValue = typeof raw.text === "string" ? raw.text : "";
     const timeValue =
       typeof raw.time === "string" ? raw.time : undefined;
@@ -214,12 +228,12 @@ export async function fetchMessages(
   return messages;
 }
 
-// Guest sends message in #general (public)
+// Guest sends message in public channel
 export async function sendPublicMessage(
   channelName: string,
   text: string
 ): Promise<void> {
-  await fetch(`${BASE_URL}/messages/public`, {
+  await fetch(buildUrl("/messages/public"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -250,7 +264,7 @@ export async function sendMessage(
     body.dmId = id;
   }
 
-  await fetch(`${BASE_URL}/messages`, {
+  await fetch(buildUrl("/messages"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -265,7 +279,7 @@ export async function loginUser(
   username: string,
   password: string
 ): Promise<LoginResponse> {
-  const res = await fetch(`${BASE_URL}/login`, {
+  const res = await fetch(buildUrl("/login"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -288,7 +302,7 @@ export async function registerUser(
   username: string,
   password: string
 ): Promise<RegisterResponse> {
-  const res = await fetch(`${BASE_URL}/register`, {
+  const res = await fetch(buildUrl("/register"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

@@ -1,116 +1,114 @@
-// Handles login, guest mode, logout, & shows either LoginPage or ChatApp
-
-import { useEffect, useState } from "react";
-import "./index.css";
+import React from "react";
+import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import LoginPage from "./pages/LoginPage";
 import ChatApp from "./ChatApp";
-import { loadAuthState, saveAuthState, clearAuthState } from "./lib/auth";
+import { useChatStore } from "./chatStore";
 
-// Shape of user info in React state
-type UserState = {
+// Type for authenticated user data
+type AuthUser = {
   username: string;
   token?: string;
-  isGuest: boolean;
 };
 
-export default function App() {
-  // Current user (null means not logged in)
-  const [user, setUser] = useState<UserState | null>(null);
+// Main app component controls routes and shared state
+const App: React.FC = () => {
+  // React Router navigation helper
+  const navigate = useNavigate();
 
-  // Loading flag for first load from localStorage
-  const [loading, setLoading] = useState(true);
+  // Read data and actions from Zustand store
+  const {
+    username,
+    isGuest,
+    token,
+    setUsername,
+    setGuest,
+    setToken,
+    logout: clearStore,
+  } = useChatStore();
 
-  // Read saved auth data when app starts
-  useEffect(() => {
-    const stored = loadAuthState();
+  // Handle normal login success
+  // Receive user object from LoginPage
+  const handleLoginSuccess = (user: AuthUser) => {
+    setUsername(user.username);
+    setGuest(false);
+    setToken(user.token);
+    navigate("/chat");
+  };
 
-    if (stored) {
-      const username =
-        stored.username ||
-        (stored.isGuest ? "Guest" : "");
+  // Handle guest login
+  const handleGuestLogin = () => {
+    setUsername("guest");
+    setGuest(true);
+    setToken(undefined);
+    navigate("/chat");
+  };
 
-      setUser({
-        username,
-        token: stored.token,
-        isGuest: stored.isGuest,
-      });
-    }
+  // Handle logout
+  // Clear store and go back to login page
+  const handleLogout = () => {
+    clearStore();
+    navigate("/");
+  };
 
-    setLoading(false);
-  }, []);
-
-  // Handle login success from LoginPage (real member)
-  function handleLoginSuccess(info: { username: string; token?: string }) {
-    const newUser: UserState = {
-      username: info.username,
-      token: info.token,
-      isGuest: false,
-    };
-
-    setUser(newUser);
-
-    // Save to localStorage so refresh keeps logged in
-    saveAuthState({
-      username: newUser.username,
-      token: newUser.token,
-      isGuest: newUser.isGuest,
-    });
-  }
-
-  // Handle guest login from LoginPage
-  function handleGuestLogin() {
-    const guestUser: UserState = {
-      username: "Guest",
-      token: undefined,
-      isGuest: true,
-    };
-
-    setUser(guestUser);
-
-    // Save guest flag so refresh stays as guest
-    saveAuthState({
-      username: guestUser.username,
-      token: guestUser.token,
-      isGuest: guestUser.isGuest,
-    });
-  }
-
-  // Logout for both guest and member
-  function handleLogout() {
-    clearAuthState();
-    setUser(null);
-  }
-
-  // While loading saved state, show simple text
-  if (loading) {
-    return (
-      <div className="app-shell">
-        <header className="app-title">Chappy</header>
-        <div className="screen-card">Loading...</div>
-      </div>
-    );
-  }
-
-  // Main layout: title + card with either login or chat
   return (
-    <div className="app-shell">
-      <header className="app-title">Chappy</header>
-
-      <div className="screen-card">
-        {user ? (
-          <ChatApp
-            username={user.username}
-            token={user.token}
-            isGuest={user.isGuest}
-            onLogout={handleLogout}
-          />
-        ) : (
+    <Routes>
+      <Route
+        path="/"
+        element={
           <LoginPage
             onLoginSuccess={handleLoginSuccess}
             onGuestLogin={handleGuestLogin}
           />
-        )}
-      </div>
-    </div>
+        }
+      />
+
+      <Route
+        path="/chat"
+        element={
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              paddingTop: "40px",
+            }}
+          >
+            {/* Page title */}
+            <h1
+              style={{
+                fontWeight: 700,
+                fontSize: "32px",
+                marginBottom: "30px",
+              }}
+            >
+              Chappy
+            </h1>
+
+            {/* Main card container */}
+            <div
+              style={{
+                backgroundColor: "#fff4e0",
+                width: "900px",
+                minHeight: "600px",
+                borderRadius: "20px",
+                padding: "30px",
+                boxShadow: "0 10px 25px rgba(0,0,0,0.1)",
+              }}
+            >
+              <ChatApp
+                username={username}
+                token={token}
+                isGuest={isGuest}
+                onLogout={handleLogout}
+              />
+            </div>
+          </div>
+        }
+      />
+
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   );
-}
+};
+
+export default App;
