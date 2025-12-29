@@ -1,13 +1,15 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-// Vite config for React app
+// Vite config for React app (GitHub Pages)
 export default defineConfig({
   plugins: [react()],
+
+  // for GitHub Pages
+  base: "/Chappy-Chat-App/",
+
   server: {
-    // Dev server proxy
-    // Frontend calls /api/...
-    // Proxy sends request to backend on port 1338
+    // Dev server proxy 
     proxy: {
       "/api": {
         target: "http://127.0.0.1:1338",
@@ -19,19 +21,4 @@ export default defineConfig({
 });
 
 
-/*
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
 
-export default defineConfig({
-  plugins: [react()],
-  server: {
-    proxy: {
-      '/api': {
-        target: 'http://localhost:1337',
-        changeOrigin: true
-      }
-    }
-  }
-})
-*/
